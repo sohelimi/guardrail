@@ -1,0 +1,13 @@
+# Core — everything the project and the live demo need (all likely already installed).
+scikit-learn>=1.3
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.7
+joblib>=1.3
+
+# The live demo (serve.py) uses ONLY the Python standard library — no web framework.
+
+# Optional — enable a real LLM tier-2 Adjudicator instead of the heuristic fallback:
+#   export GUARDRAIL_LLM=1
+#   pip install anthropic         # and set ANTHROPIC_API_KEY
+# The project runs fully offline without these.

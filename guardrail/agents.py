@@ -1,0 +1,216 @@
+"""The specialized agents that collaborate to adjudicate a prompt.
+
+Each agent owns ONE responsibility and speaks only via A2A messages:
+
+    ForensicsAgent   - normalises/de-obfuscates the input, reports transforms
+    TriageAgent      - fast ML tier-1 detector -> calibrated risk score
+    AdjudicatorAgent - tier-2 deep judge, only for the uncertain band
+    PolicyAgent      - maps (verdict, user role) -> concrete action
+    OrchestratorAgent- coordinates the above and issues the final ruling
+
+Separation of concerns matters here beyond tidiness: each agent is independently
+testable, replaceable (swap the heuristic Adjudicator for an LLM guard model
+without touching anyone else), and its messages are logged for audit.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from .a2a import AgentMessage, MessageBus, Performative
+from .config import UNCERTAIN_HIGH, UNCERTAIN_LOW
+from .llm_judge import _deobfuscate, judge
+from .models import top_tokens
+
+
+class Agent:
+    name: str = "agent"
+
+    def handle(self, msg: AgentMessage, bus: MessageBus) -> list[AgentMessage]:
+        return []
+
+    def _msg(self, to, perf, **content) -> AgentMessage:
+        return AgentMessage(self.name, to, perf, content)
+
+
+# ---------------------------------------------------------------------------
+class ForensicsAgent(Agent):
+    """De-obfuscates input so downstream agents see the true intent."""
+    name = "Forensics"
+
+    def handle(self, msg, bus):
+        import re
+        text = msg.content["text"]
+        transforms = []
+        low = text.lower()
+        letters = [c for c in text if c.isalpha()]
+        if letters and sum(c.isupper() for c in letters) > len(letters) * 0.7:
+            transforms.append("uppercase")
+        if "base64" in low or _looks_b64(text):
+            transforms.append("base64")
+        if text.count(" ") > max(6, len(text) * 0.3):
+            transforms.append("spaced")
+        # leetspeak only when a digit is sandwiched inside a word (l3ak, pr3v0us),
+        # so ordinary tokens like "Q3" or "SOC 2" don't trip it.
+        if len(re.findall(r"[a-z][0-9][a-z]", low)) >= 1:
+            transforms.append("leetspeak")
+        # only de-obfuscate when a transform was actually detected; otherwise the
+        # normalized view is just the original text (clean, readable trace).
+        normalized = _deobfuscate(text) if transforms else text
+        return [self._msg(msg.sender, Performative.INFORM,
+                          normalized=normalized, transforms=transforms,
+                          obfuscated=bool(transforms))]
+
+
+def _looks_b64(text: str) -> bool:
+    import re
+    return bool(re.search(r"[A-Za-z0-9+/]{16,}={0,2}", text))
+
+
+# ---------------------------------------------------------------------------
+class TriageAgent(Agent):
+    """Fast ML tier-1 detector. Emits a calibrated P(attack) and top tokens."""
+    name = "Triage"
+
+    def __init__(self, tier1_model):
+        self.model = tier1_model
+
+    def handle(self, msg, bus):
+        text = msg.content["text"]
+        prob = float(self.model.predict_proba([text])[0, 1])
+        tokens = self._explain(text)
+        return [self._msg(msg.sender, Performative.INFORM, risk=round(prob, 3),
+                          top_tokens=tokens)]
+
+    def _explain(self, text):
+        inner = self.model
+        if hasattr(inner, "calibrated_classifiers_"):
+            inner = inner.calibrated_classifiers_[0].estimator
+        try:
+            return top_tokens(inner, text)
+        except Exception:
+            return []
+
+
+# ---------------------------------------------------------------------------
+class AdjudicatorAgent(Agent):
+    """Tier-2 deep judge. Consulted only when Triage is uncertain."""
+    name = "Adjudicator"
+
+    def handle(self, msg, bus):
+        text = msg.content["text"]
+        j = judge(text)  # LLM if enabled, else heuristic
+        return [self._msg(msg.sender, Performative.INFORM, label=j.label,
+                          confidence=round(j.score, 3), source=j.source,
+                          rationale=j.rationale)]
+
+
+# ---------------------------------------------------------------------------
+class PolicyAgent(Agent):
+    """Turns a verdict into an action, applying enterprise policy + user role."""
+    name = "Policy"
+
+    # higher-trust roles get a 'human review' step instead of a hard block on
+    # borderline calls, so we don't wall off legitimate power users.
+    REVIEW_ROLES = {"admin", "security_engineer"}
+
+    def handle(self, msg, bus):
+        verdict = msg.content["verdict"]        # 1 = attack, 0 = benign
+        confidence = msg.content.get("confidence", 1.0)
+        role = msg.content.get("role", "employee")
+        if verdict == 0:
+            action, reason = "allow", "No injection intent detected."
+        elif confidence < 0.80 and role in self.REVIEW_ROLES:
+            action, reason = "review", f"Borderline for trusted role '{role}' -> human review."
+        else:
+            action, reason = "block", "Injection/jailbreak intent -> blocked at gateway."
+        return [self._msg(msg.sender, Performative.DECIDE, action=action, reason=reason)]
+
+
+# ---------------------------------------------------------------------------
+@dataclass
+class Verdict:
+    label: int
+    action: str                       # allow | block | review
+    risk: float
+    decided_by: str                   # "Triage" or "Adjudicator"
+    reason: str
+    transforms: list = field(default_factory=list)
+    top_tokens: list = field(default_factory=list)
+    trace: list = field(default_factory=list)   # list[AgentMessage]
+    latency_ms: float = 0.0
+    judge_source: str | None = None
+
+
+class OrchestratorAgent(Agent):
+    """Coordinates the multi-agent workflow via A2A messages and rules on the result.
+
+    Flow:
+        Orchestrator -> Forensics : REQUEST  (normalise)
+        Forensics    -> Orchestrator: INFORM (transforms)
+        Orchestrator -> Triage    : REQUEST  (classify)
+        Triage       -> Orchestrator: INFORM (risk)
+        [if uncertain]
+        Orchestrator -> Adjudicator: ESCALATE
+        Adjudicator  -> Orchestrator: INFORM (label)
+        Orchestrator -> Policy     : REQUEST (decide)
+        Policy       -> Orchestrator: DECIDE (action)
+    """
+    name = "Orchestrator"
+
+    def __init__(self, bus: MessageBus, low=UNCERTAIN_LOW, high=UNCERTAIN_HIGH, audit=None):
+        self.bus = bus
+        self.low, self.high = low, high
+        self.audit = audit  # optional AuditLog; set at the gateway, off during eval
+
+    def analyze(self, text: str, role: str = "employee") -> Verdict:
+        import time
+        t0 = time.perf_counter()
+        self.bus.reset()
+
+        # 1. Forensics
+        fx = self.bus.send(self._msg("Forensics", Performative.REQUEST, text=text))[0]
+        transforms = fx.content["transforms"]
+
+        # 2. Triage (classify the de-obfuscated view so obfuscation can't hide intent)
+        view = fx.content["normalized"] if transforms else text
+        tri = self.bus.send(self._msg("Triage", Performative.REQUEST, text=view))[0]
+        risk = tri.content["risk"]
+        tokens = tri.content["top_tokens"]
+
+        # 3. Decide directly, or escalate the uncertain middle band
+        if risk < self.low:
+            label, decided_by, jsrc, confidence = 0, "Triage", None, 1 - risk
+            escalate_reason = f"Confidently benign (risk={risk:.2f} < {self.low})."
+        elif risk > self.high:
+            label, decided_by, jsrc, confidence = 1, "Triage", None, risk
+            escalate_reason = f"Confidently malicious (risk={risk:.2f} > {self.high})."
+        else:
+            adj = self.bus.send(self._msg("Adjudicator", Performative.ESCALATE, text=text,
+                                          risk=risk))[0]
+            label = adj.content["label"]
+            confidence = adj.content["confidence"]
+            jsrc = adj.content["source"]
+            decided_by = "Adjudicator"
+            escalate_reason = (f"Uncertain at tier-1 (risk={risk:.2f}); "
+                               f"Adjudicator[{jsrc}] -> {'ATTACK' if label else 'BENIGN'}.")
+
+        # 4. Policy
+        pol = self.bus.send(self._msg("Policy", Performative.REQUEST, verdict=label,
+                                      confidence=confidence, role=role))[0]
+
+        verdict = Verdict(
+            label=label,
+            action=pol.content["action"],
+            risk=risk,
+            decided_by=decided_by,
+            reason=f"{escalate_reason} {pol.content['reason']}",
+            transforms=transforms,
+            top_tokens=tokens,
+            trace=list(self.bus.trace),
+            latency_ms=round((time.perf_counter() - t0) * 1000, 2),
+            judge_source=jsrc,
+        )
+        # persist the decision + full A2A trace for auditability
+        if self.audit is not None:
+            self.audit.record(verdict, text, role)
+        return verdict

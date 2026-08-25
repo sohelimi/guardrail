@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# macOS / editor
+.DS_Store
+~$*
+
+# Runtime output (regenerated on run)
+logs/
+
+# Presentation & interview-prep materials — kept out of this technical repo
+PRESENTATION.md
+docs/SPEAKER_SCRIPT.md
+docs/DEMO_CHOREOGRAPHY.md
+docs/PRESENTER_HANDBOOK.html
+docs/Guardrail_PANW_Deck.pptx
+scripts/build_deck.js
+scripts/fix_charts.py
+
+# debug scratch
+docs/_u/
+docs/_unz/

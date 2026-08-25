@@ -1,0 +1,111 @@
+{
+  "bakeoff": {
+    "keyword_baseline": {
+      "precision": 0.7021,
+      "recall": 0.1075,
+      "f1": 0.1864,
+      "roc_auc": 0.5423,
+      "pr_auc": 0.3982,
+      "recall@1%fpr": 0.1075
+    },
+    "word_logreg": {
+      "precision": 0.984,
+      "recall": 1.0,
+      "f1": 0.9919,
+      "roc_auc": 1.0,
+      "pr_auc": 1.0,
+      "recall@1%fpr": 1.0
+    },
+    "char_logreg": {
+      "precision": 0.9903,
+      "recall": 1.0,
+      "f1": 0.9951,
+      "roc_auc": 1.0,
+      "pr_auc": 1.0,
+      "recall@1%fpr": 1.0
+    },
+    "union_logreg": {
+      "precision": 0.9871,
+      "recall": 1.0,
+      "f1": 0.9935,
+      "roc_auc": 1.0,
+      "pr_auc": 1.0,
+      "recall@1%fpr": 1.0
+    }
+  },
+  "primary": {
+    "tier1_scores": {
+      "standard_test": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "roc_auc": 1.0,
+        "pr_auc": 1.0,
+        "recall@1%fpr": 1.0
+      },
+      "adversarial_holdout_pr_auc": 0.9999
+    },
+    "cascade_end_to_end": {
+      "standard_test": {
+        "precision": 1.0,
+        "recall": 0.9837,
+        "f1": 0.9918
+      },
+      "adversarial_holdout": {
+        "precision": 1.0,
+        "recall": 0.9198,
+        "f1": 0.9582
+      }
+    },
+    "cost_optimal_threshold": 0.56,
+    "note": "adversarial_holdout = attack families/obfuscations NEVER seen in training"
+  },
+  "ablation": {
+    "with_augmentation_adv_recall": 0.9198,
+    "without_augmentation_adv_recall": 0.7624,
+    "interpretation": "augmentation should raise recall on unseen obfuscated attacks"
+  },
+  "dataset": {
+    "n_train": 3552,
+    "n_test": 889,
+    "n_adversarial": 686
+  },
+  "per_family_adversarial_recall": {
+    "data_exfiltration": {
+      "n": 38,
+      "recall": 1.0
+    },
+    "encoding_smuggling": {
+      "n": 49,
+      "recall": 1.0
+    },
+    "indirect_injection": {
+      "n": 254,
+      "recall": 0.827
+    },
+    "instruction_override": {
+      "n": 55,
+      "recall": 1.0
+    },
+    "prompt_leak": {
+      "n": 40,
+      "recall": 1.0
+    },
+    "refusal_suppression": {
+      "n": 53,
+      "recall": 1.0
+    },
+    "roleplay_jailbreak": {
+      "n": 54,
+      "recall": 1.0
+    },
+    "stealth_injection": {
+      "n": 101,
+      "recall": 0.891
+    },
+    "tool_abuse": {
+      "n": 42,
+      "recall": 1.0
+    }
+  }
+}
