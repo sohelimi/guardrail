@@ -117,7 +117,7 @@ PAGE = r"""<!doctype html><html lang=en><head><meta charset=utf-8>
 *{box-sizing:border-box}body{margin:0;font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;
 background:var(--bg);color:var(--fg)}
 .wrap{max-width:1000px;margin:0 auto;padding:28px 20px 60px}
-h1{font-size:22px;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 22px;font-size:14px}
+h1{font-size:34px;margin:0 0 8px}.sub{color:var(--mut);margin:0 0 22px;font-size:14px}
 textarea{width:100%;min-height:78px;background:var(--card);color:var(--fg);border:1px solid var(--line);
 border-radius:10px;padding:12px;font:inherit;resize:vertical}
 .row{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
