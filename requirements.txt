@@ -15,5 +15,9 @@ unidecode>=1.4
 
 # Optional — enable a real LLM tier-2 Adjudicator instead of the heuristic fallback:
 #   export GUARDRAIL_LLM=1
+#   export GUARDRAIL_LLM_PROVIDER=anthropic   # default; or "openai"
 #   pip install anthropic         # and set ANTHROPIC_API_KEY
+#   -- or --
+#   pip install openai            # and set OPENAI_API_KEY
+#     (optional: GUARDRAIL_OPENAI_MODEL, default "gpt-4o-mini")
 # The project runs fully offline without these.
