@@ -80,25 +80,38 @@ def p(*paras: str) -> str:
 
 
 def ARCH_SVG() -> str:
+    # Hub-and-spoke, matching orchestrator.analyze(): every agent replies ONLY to the
+    # Orchestrator (double-headed edges); agents never call each other. Policy's DECIDE
+    # reply is what the Orchestrator turns into the final allow/review/block.
     return """
-<div class="diagram"><svg viewBox="0 0 820 250" role="img" aria-label="A2A architecture">
-  <defs><marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
-    <path d="M0,0 L7,3 L0,6 Z" fill="var(--mut)"/></marker></defs>
-  <rect x="20" y="100" width="120" height="46" rx="8" class="box b-orch"/>
-  <text x="80" y="128" class="bx">Orchestrator</text>
-  <rect x="200" y="20"  width="120" height="46" rx="8" class="box"/><text x="260" y="48" class="bx">Forensics</text>
-  <rect x="200" y="100" width="120" height="46" rx="8" class="box b-ml"/><text x="260" y="128" class="bx">Triage (ML)</text>
-  <rect x="200" y="180" width="120" height="46" rx="8" class="box"/><text x="260" y="208" class="bx">Adjudicator</text>
+<div class="diagram"><svg viewBox="0 0 820 250" role="img" aria-label="A2A architecture — hub and spoke">
+  <defs>
+    <marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="var(--mut)"/></marker>
+    <marker id="a2" markerWidth="9" markerHeight="9" refX="2" refY="3" orient="auto">
+      <path d="M7,0 L0,3 L7,6 Z" fill="var(--mut)"/></marker>
+  </defs>
+  <rect x="20" y="100" width="140" height="46" rx="8" class="box b-orch"/>
+  <text x="90" y="128" class="bx">Orchestrator</text>
+  <rect x="320" y="20"  width="120" height="46" rx="8" class="box"/><text x="380" y="48" class="bx">Forensics</text>
+  <rect x="320" y="100" width="120" height="46" rx="8" class="box b-ml"/><text x="380" y="128" class="bx">Triage (ML)</text>
+  <rect x="320" y="180" width="120" height="46" rx="8" class="box"/><text x="380" y="208" class="bx">Adjudicator</text>
   <rect x="560" y="100" width="120" height="46" rx="8" class="box b-pol"/><text x="620" y="128" class="bx">Policy</text>
-  <rect x="700" y="100" width="100" height="46" rx="8" class="box b-out"/><text x="750" y="128" class="bx">allow / block</text>
-  <line x1="140" y1="115" x2="200" y2="46"  class="arw" marker-end="url(#a)"/>
-  <line x1="140" y1="123" x2="200" y2="123" class="arw" marker-end="url(#a)"/>
-  <line x1="140" y1="131" x2="200" y2="200" class="arw" marker-end="url(#a)"/>
-  <line x1="320" y1="123" x2="560" y2="123" class="arw" marker-end="url(#a)"/>
+  <rect x="700" y="100" width="100" height="46" rx="8" class="box b-out"/><text x="750" y="128" class="bx">allow / review / block</text>
+  <!-- every edge is double-headed: dispatch out from Orchestrator, reply back in -->
+  <line x1="160" y1="108" x2="320" y2="44"  class="arw" marker-end="url(#a)" marker-start="url(#a2)"/>
+  <line x1="160" y1="123" x2="320" y2="123" class="arw" marker-end="url(#a)" marker-start="url(#a2)"/>
+  <line x1="160" y1="138" x2="320" y2="200" class="arw" marker-end="url(#a)" marker-start="url(#a2)"/>
+  <line x1="160" y1="128" x2="560" y2="123" class="arw" marker-end="url(#a)" marker-start="url(#a2)" stroke-dasharray="4 3"/>
   <line x1="680" y1="123" x2="700" y2="123" class="arw" marker-end="url(#a)"/>
-  <text x="440" y="114" class="lbl">risk&lt;0.30 allow · &gt;0.80 block</text>
-  <text x="440" y="140" class="lbl">else escalate ↑</text>
-</svg></div>"""
+  <text x="230" y="16"  class="lbl">REQUEST</text>
+  <text x="230" y="207" class="lbl">ESCALATE (uncertain band)</text>
+  <text x="290" y="118" class="lbl">REQUEST → Policy (dashed: routed by Orchestrator, not Triage)</text>
+</svg></div>
+<p class=note>Every agent connects <b>only</b> to the Orchestrator — REQUEST/ESCALATE out,
+INFORM/DECIDE back. Agents never call each other directly, and the Orchestrator itself builds
+the final <code>Verdict</code> after Policy's reply. See <code>OrchestratorAgent.analyze()</code>
+in <code>agents.py</code> below.</p>"""
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +133,13 @@ SECTIONS = [
         "context), predict <span class=k>attack</span> vs <span class=k>benign</span> at gateway "
         "latency. <b>Success metric:</b> recall (catch-rate) on <i>unseen</i> attacks at a fixed low "
         "false-positive rate — blocking a legitimate employee is expensive, so a false negative is "
-        "weighted 3× a false positive."), []),
+        "weighted 3× a false positive.",
+        "<b>Presentation materials</b> (not covered further in this document): "
+        "<code>Guardrail_PANW_Deck_Condensed.pptx</code> — an 11-slide condensed deck, each "
+        "technical slide carrying a measured Design-Choice callout, full depth preserved in "
+        "Appendix A–Z; <code>SPEAKER_SCRIPT.md</code> and <code>PRESENTER_HANDBOOK.html</code> — "
+        "word-for-word narration and a Q&amp;A bank for that deck; "
+        "<code>DEMO_CHOREOGRAPHY.md</code> — the exact live-demo prompt sequence."), []),
 
     ("architecture", "2 · Architecture", p(
         "A request flows through five single-responsibility agents coordinated by an "
@@ -198,20 +217,53 @@ SECTIONS = [
         "same logic decomposed into collaborating agents; the plain <code>Cascade</code> is retained "
         "because the evaluation harness uses it to score models quickly."), [G / "cascade.py"]),
 
-    ("evaluate", "12 · Evaluation Framework", p(
+    ("audit", "12 · Audit Log", p(
+        "An append-only audit trail. For a security control, &ldquo;auditable by design&rdquo; has to "
+        "mean decisions are actually recorded, not just shown in a UI. Every decision — verdict plus the "
+        "full A2A deliberation trace — is written as one JSON line to <code>logs/audit.jsonl</code> (the "
+        "standard shape for SIEM ingestion), with a timestamp, request id, and a SHA-256 of the prompt "
+        "(or a redaction), so any block can be replayed and explained months later. The gateway enables "
+        "it; evaluation runs with it off so the trail isn&rsquo;t flooded."), [G / "audit.py"]),
+
+    ("evaluate", "13 · Evaluation Framework", p(
         "Answers, with numbers: how the candidates compare; how well the system generalises to attack "
         "families never seen in training (the headline robustness result); what synthetic augmentation "
         "actually buys (an ablation); and where to set the operating threshold given asymmetric costs. "
         "Metrics are security-aware — recall at a fixed low false-positive rate, PR-AUC, and per-family "
         "recall for error analysis."), [G / "evaluate.py"]),
 
-    ("serve", "13 · Live Demo Server", p(
+    ("benchmark", "14 · Benchmark &amp; Model-Selection Evidence", p(
+        "Model selection is grounded in measurement, not assertion. <b>Eleven candidates</b> — the "
+        "keyword floor; word / char / union Logistic Regression (the deployed model is the calibrated "
+        "union); Linear SVM; ComplementNB; SGD; HistGBDT; a <b>from-scratch NumPy</b> logistic "
+        "regression; plus two deep-learning candidates (<b>MiniLM sentence-embeddings</b> and a "
+        "<b>frozen DistilBERT</b> feature-extractor) — are trained on the identical split and scored on "
+        "the same adversarial holdout, with a real median single-request latency.",
+        "<b>The result that matters:</b> the heavyweight models earn no measurable accuracy on this task "
+        "while costing 5–150× the latency — the empirical basis for keeping them off the hot path, "
+        "behind the escalation band. (Full fine-tuning of DistilBERT was attempted but is impractical on "
+        "CPU here, which only reinforces the point; it is recorded as such.)",
+        "<b>Is the union really better than word-only?</b> On the benchmark it isn&rsquo;t, quite — "
+        "word-only <i>ties</i> it on adversarial recall. But only because the single held-out "
+        "obfuscation (base64) carries an English wrapper (&ldquo;Decode this base64&hellip;&rdquo;) that "
+        "word features catch for free. So a deeper, fair test (<code>deep_compare.py</code>) calibrates "
+        "every candidate and adds a <b>char-stress holdout</b>: obfuscations that <i>destroy word "
+        "tokens</i> — space-removal and inner-char swaps, never seen in training, no wrapper.",
+        "<b>Two honest findings.</b> (1) <b>Calibration is not the differentiator</b> — a fairly "
+        "calibrated word-only model reaches the same ECE, so that argument is dropped. (2) "
+        "<b>Robustness is</b> — when obfuscation destroys word tokens, word-only&rsquo;s "
+        "<b>false-positive rate explodes to 43%</b> (it blocks nearly half of benign de-spaced text) "
+        "while the union holds <b>0%</b> and still recalls 0.93. That gap is the precision-first thesis, "
+        "measured — and it is why the calibrated union is deployed."),
+     [S / "run_benchmark.py", S / "deep_compare.py"]),
+
+    ("serve", "15 · Live Demo Server", p(
         "A dependency-free web app built on <code>http.server</code>. It serves a single page that "
         "calls the orchestrator and renders the A2A trace live. No Flask, no Streamlit, no network — "
         "safe to run in an interview with the Wi-Fi off. Port is configurable to avoid collisions."),
      [ROOT / "serve.py"]),
 
-    ("scripts", "14 · Scripts", p(
+    ("scripts", "16 · Scripts", p(
         "Three thin entry points that wire the pieces together: generate the data (with a fidelity "
         "report), train and save the cascade, and run the full evaluation with plots."),
      [S / "make_data.py", S / "train.py", S / "run_eval.py"]),
@@ -241,12 +293,77 @@ def results_table() -> str:
 <table class=tbl><tr><th>Attack family</th><th>n</th><th>Recall</th></tr>{rows}</table>"""
 
 
+def _b64_png(path: Path) -> str:
+    import base64
+    return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode()
+
+
+def benchmark_tables() -> str:
+    """Render the 11-model benchmark and the union-vs-word deep comparison from JSON."""
+    bp = ROOT / "artifacts" / "benchmark.json"
+    dp = ROOT / "artifacts" / "deep_compare.json"
+    out = []
+    if bp.exists():
+        b = json.loads(bp.read_text())
+        models = b["models"]
+        order = sorted(models, key=lambda n: models[n].get("adversarial_holdout", {}).get("recall", -1), reverse=True)
+        rows = ""
+        for n in order:
+            r = models[n]
+            if "adversarial_holdout" not in r:
+                continue
+            rows += (f"<tr><td>{html.escape(n)}</td><td>{r['family']}</td>"
+                     f"<td>{r['standard_test']['f1']:.3f}</td>"
+                     f"<td>{r['adversarial_holdout']['recall']:.3f}</td>"
+                     f"<td>{r['latency_ms']:g}</td></tr>")
+        ds = b.get("dataset", {})
+        out.append(f"<p><b>Benchmark — 11 candidates</b> (identical split: {ds.get('n_train')} train / "
+                   f"{ds.get('n_test')} test / {ds.get('n_adversarial')} adversarial holdout; ranked by "
+                   f"recall on unseen attacks):</p>")
+        out.append("<table class=tbl><tr><th>Model</th><th>Family</th><th>std F1</th>"
+                   f"<th>adv recall</th><th>latency ms</th></tr>{rows}</table>")
+        png = ROOT / "artifacts" / "benchmark.png"
+        if png.exists():
+            out.append(f'<p><img alt="accuracy vs latency across 11 models" '
+                       f'style="max-width:100%;border:1px solid var(--line);border-radius:10px;margin-top:8px" '
+                       f'src="{_b64_png(png)}"></p>')
+    if dp.exists():
+        d = json.loads(dp.read_text())
+        m = d["models"]
+        rows = ""
+        for n in ("word (calibrated)", "char (calibrated)", "union (calibrated) ★"):
+            if n not in m:
+                continue
+            r = m[n]
+            fpr_cls = ' style="color:var(--kw);font-weight:700"' if r["charstress_fpr"] >= 0.2 else ' style="color:var(--acc);font-weight:700"'
+            rows += (f"<tr><td>{html.escape(n)}</td><td>{r['std_f1']:.3f}</td><td>{r['ece']:.3f}</td>"
+                     f"<td>{r['charstress_recall']:.2f}</td><td{fpr_cls}>{r['charstress_fpr']:.2f}</td></tr>")
+        cs = d.get("dataset", {}).get("char_stress")
+        out.append(f"<p style='margin-top:18px'><b>Deep comparison — is the union really better than "
+                   f"word-only?</b> Every candidate calibrated fairly, then scored on a <b>char-stress "
+                   f"holdout</b> (n={cs}) of obfuscations that destroy word tokens (space-removal + "
+                   f"inner-char swaps, not in training):</p>")
+        out.append("<table class=tbl><tr><th>Model</th><th>std F1</th><th>ECE&darr;</th>"
+                   f"<th>char-stress recall</th><th>char-stress FPR</th></tr>{rows}</table>")
+        out.append("<p class=note><b>Two findings.</b> Calibration is <i>not</i> the differentiator "
+                   "(word-only reaches the same ECE). The real edge is robustness: when obfuscation "
+                   "destroys word tokens, word-only&rsquo;s false-positive rate hits <b>43%</b> while the "
+                   "union holds <b>0%</b> and still recalls 0.93. Reproduce with "
+                   "<code>python3 scripts/deep_compare.py</code>.</p>")
+    return "".join(out) or "<p class=note>Run <code>scripts/run_benchmark.py</code> and <code>scripts/deep_compare.py</code> to populate.</p>"
+
+
 def build() -> str:
     toc = "".join(f'<a href="#{a}">{t}</a>' for a, t, _, _ in SECTIONS)
     body = []
     for anchor, title, prose, files in SECTIONS:
         blocks = "".join(code_block(f) for f in files)
-        extra = results_table() if anchor == "evaluate" else ""
+        if anchor == "evaluate":
+            extra = results_table()
+        elif anchor == "benchmark":
+            extra = benchmark_tables()
+        else:
+            extra = ""
         body.append(f'<section id="{anchor}"><h2>{title}</h2>{prose}{extra}{blocks}</section>')
     return TEMPLATE.replace("__TOC__", toc).replace("__BODY__", "".join(body))
 

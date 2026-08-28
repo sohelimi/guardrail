@@ -1,0 +1,222 @@
+{
+  "dataset": {
+    "n_train": 3552,
+    "n_test": 889,
+    "n_adversarial": 686
+  },
+  "models": {
+    "keyword_baseline": {
+      "family": "rules",
+      "standard_test": {
+        "f1": 0.1864,
+        "pr_auc": 0.3982,
+        "recall_at_1pct_fpr": 0.1075,
+        "precision": 0.7021,
+        "recall": 0.1075
+      },
+      "adversarial_holdout": {
+        "f1": 0.0944,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": NaN,
+        "precision": 1.0,
+        "recall": 0.0496
+      },
+      "latency_ms": 0.01,
+      "train_seconds": 0.0
+    },
+    "logreg_word": {
+      "family": "linear",
+      "standard_test": {
+        "f1": 0.9919,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": 1.0,
+        "precision": 0.984,
+        "recall": 1.0
+      },
+      "adversarial_holdout": {
+        "f1": 1.0,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": NaN,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "latency_ms": 0.232,
+      "train_seconds": 0.07
+    },
+    "logreg_char": {
+      "family": "linear",
+      "standard_test": {
+        "f1": 0.9951,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": 1.0,
+        "precision": 0.9903,
+        "recall": 1.0
+      },
+      "adversarial_holdout": {
+        "f1": 0.9956,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": NaN,
+        "precision": 1.0,
+        "recall": 0.9913
+      },
+      "latency_ms": 0.27,
+      "train_seconds": 0.26
+    },
+    "logreg_union (deployed)": {
+      "family": "linear+cal",
+      "standard_test": {
+        "f1": 0.9984,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": 1.0,
+        "precision": 0.9968,
+        "recall": 1.0
+      },
+      "adversarial_holdout": {
+        "f1": 0.9949,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": NaN,
+        "precision": 1.0,
+        "recall": 0.9898
+      },
+      "latency_ms": 3.054,
+      "train_seconds": 0.89
+    },
+    "linear_svm": {
+      "family": "linear+cal",
+      "standard_test": {
+        "f1": 0.9968,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": 1.0,
+        "precision": 0.9935,
+        "recall": 1.0
+      },
+      "adversarial_holdout": {
+        "f1": 0.9919,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": NaN,
+        "precision": 1.0,
+        "recall": 0.984
+      },
+      "latency_ms": 1.509,
+      "train_seconds": 0.39
+    },
+    "complement_nb": {
+      "family": "bayes",
+      "standard_test": {
+        "f1": 0.9968,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": 1.0,
+        "precision": 0.9935,
+        "recall": 1.0
+      },
+      "adversarial_holdout": {
+        "f1": 0.9978,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": NaN,
+        "precision": 1.0,
+        "recall": 0.9956
+      },
+      "latency_ms": 0.781,
+      "train_seconds": 0.27
+    },
+    "sgd_logloss": {
+      "family": "linear",
+      "standard_test": {
+        "f1": 0.9919,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": 1.0,
+        "precision": 0.984,
+        "recall": 1.0
+      },
+      "adversarial_holdout": {
+        "f1": 0.9993,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": NaN,
+        "precision": 1.0,
+        "recall": 0.9985
+      },
+      "latency_ms": 0.73,
+      "train_seconds": 0.29
+    },
+    "hist_gbdt": {
+      "family": "trees",
+      "standard_test": {
+        "f1": 0.9951,
+        "pr_auc": 0.9999,
+        "recall_at_1pct_fpr": 1.0,
+        "precision": 0.9935,
+        "recall": 0.9967
+      },
+      "adversarial_holdout": {
+        "f1": 0.9598,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": NaN,
+        "precision": 1.0,
+        "recall": 0.9227
+      },
+      "latency_ms": 2.221,
+      "train_seconds": 3.14
+    },
+    "numpy_logreg (from scratch)": {
+      "family": "from-scratch",
+      "standard_test": {
+        "f1": 0.9918,
+        "pr_auc": 0.9998,
+        "recall_at_1pct_fpr": 1.0,
+        "precision": 1.0,
+        "recall": 0.9837
+      },
+      "adversarial_holdout": {
+        "f1": 0.9723,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": NaN,
+        "precision": 1.0,
+        "recall": 0.9461
+      },
+      "latency_ms": 1.54,
+      "train_seconds": 1.37
+    },
+    "embeddings (MiniLM) + logreg": {
+      "family": "embeddings",
+      "standard_test": {
+        "f1": 0.9855,
+        "pr_auc": 0.9998,
+        "recall_at_1pct_fpr": 0.9935,
+        "precision": 0.9745,
+        "recall": 0.9967
+      },
+      "adversarial_holdout": {
+        "f1": 0.9978,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": NaN,
+        "precision": 1.0,
+        "recall": 0.9956
+      },
+      "latency_ms": 34.692,
+      "train_seconds": 8.56
+    },
+    "distilbert (frozen) + logreg": {
+      "family": "transformer",
+      "standard_test": {
+        "f1": 0.9903,
+        "pr_auc": 0.9999,
+        "recall_at_1pct_fpr": 1.0,
+        "precision": 0.9808,
+        "recall": 1.0
+      },
+      "adversarial_holdout": {
+        "f1": 0.9792,
+        "pr_auc": 1.0,
+        "recall_at_1pct_fpr": NaN,
+        "precision": 1.0,
+        "recall": 0.9592
+      },
+      "latency_ms": 13.468,
+      "train_seconds": 41.79
+    }
+  },
+  "skipped": {
+    "distilbert (fine-tuned)": "attempted \u2014 full CPU fine-tuning is impractical here (>10 min, unstable on torch 2.11 + py3.14); reinforces keeping transformers off the hot path"
+  },
+  "elapsed_seconds": 80.3
+}

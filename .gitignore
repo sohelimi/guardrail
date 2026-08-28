@@ -17,10 +17,20 @@ PRESENTATION.md
 docs/SPEAKER_SCRIPT.md
 docs/DEMO_CHOREOGRAPHY.md
 docs/PRESENTER_HANDBOOK.html
+docs/STUDY_GUIDE.html
+docs/CALL_GRAPH.html
 docs/Guardrail_PANW_Deck.pptx
+docs/Guardrail_PANW_Deck_Condensed.pptx
+docs/Guardrail_PANW_Deck_Practice1.pptx
+docs/Guardrail_PANW_Deck_backed.pptx
+docs/_backup_*/
 scripts/build_deck.js
+scripts/build_deck_condensed.js
 scripts/fix_charts.py
 
 # debug scratch
 docs/_u/
 docs/_unz/
+
+# DL benchmark venv (large, local-only)
+.venv-bench/

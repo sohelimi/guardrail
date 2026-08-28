@@ -1,0 +1,64 @@
+{
+  "dataset": {
+    "train": 3552,
+    "test": 889,
+    "adv": 686,
+    "char_stress": 584
+  },
+  "models": {
+    "word (raw)": {
+      "std_f1": 0.9919,
+      "std_recall": 1.0,
+      "brier": 0.011,
+      "ece": 0.0735,
+      "adv_recall": 1.0,
+      "charstress_recall": 0.8767,
+      "charstress_fpr": 0.4452
+    },
+    "word (calibrated)": {
+      "std_f1": 0.9968,
+      "std_recall": 1.0,
+      "brier": 0.0059,
+      "ece": 0.0465,
+      "adv_recall": 1.0,
+      "charstress_recall": 0.8562,
+      "charstress_fpr": 0.4315
+    },
+    "char (raw)": {
+      "std_f1": 0.9951,
+      "std_recall": 1.0,
+      "brier": 0.008,
+      "ece": 0.0602,
+      "adv_recall": 0.9913,
+      "charstress_recall": 0.9932,
+      "charstress_fpr": 0.0171
+    },
+    "char (calibrated)": {
+      "std_f1": 1.0,
+      "std_recall": 1.0,
+      "brier": 0.0044,
+      "ece": 0.0435,
+      "adv_recall": 0.9694,
+      "charstress_recall": 0.9726,
+      "charstress_fpr": 0.0
+    },
+    "union (raw)": {
+      "std_f1": 0.9935,
+      "std_recall": 1.0,
+      "brier": 0.0073,
+      "ece": 0.0511,
+      "adv_recall": 0.9985,
+      "charstress_recall": 0.9658,
+      "charstress_fpr": 0.0068
+    },
+    "union (calibrated) \u2605": {
+      "std_f1": 0.9984,
+      "std_recall": 1.0,
+      "brier": 0.0049,
+      "ece": 0.0454,
+      "adv_recall": 0.9898,
+      "charstress_recall": 0.9315,
+      "charstress_fpr": 0.0
+    }
+  }
+}
