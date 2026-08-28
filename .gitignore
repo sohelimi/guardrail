@@ -5,6 +5,11 @@ __pycache__/
 .venv/
 venv/
 
+# Secrets — never commit API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
+.env
+.env.*
+*.env
+
 # macOS / editor
 .DS_Store
 ~$*
