@@ -75,13 +75,20 @@ prompt ─▶ Orchestrator ─REQUEST─▶ Forensics   (de-obfuscate; report tr
 
 | Slice | Precision | Recall | F1 |
 |---|---|---|---|
-| Standard test (in-distribution) | 1.00 | 0.98 | 0.99 |
-| **Adversarial holdout** (attack families/obfuscations **never seen in training**) | 1.00 | 0.92 | 0.96 |
+| Standard test (in-distribution) | 1.00 | 0.99 | 1.00 |
+| **Adversarial holdout** (attack families/obfuscations **never seen in training**) | 1.00 | 0.77 | 0.87 |
 
 - **Zero false positives** across benign prompts including all hard-negatives/look-alikes.
-- **Ablation:** synthetic augmentation lifts novel-attack recall **0.76 → 0.92**.
+- **Ablation:** synthetic augmentation lifts novel-attack recall **0.41 → 0.77**.
 - **Per-family error analysis:** the low-signal families remain the gap
-  (`indirect_injection` 0.83, `stealth_injection` 0.89) — honest, and the driver of “what I’d do differently”.
+  (`prompt_leak` 0.50, `refusal_suppression` 0.59, `encoding_smuggling`/`data_exfiltration` 0.67) —
+  honest, and the driver of "what I'd do differently".
+- **10 obfuscation families** covered end-to-end (base64, spacing, leetspeak, uppercase,
+  URL/percent-encoding, hex escapes, HTML entities, ROT13, Unicode fullwidth forms,
+  zero-width character insertion) plus a general mojibake/homoglyph safety net (`ftfy` +
+  `unidecode`) for disguises not explicitly enumerated. The adversarial holdout excludes
+  **two** of these (`base64`, `zero_width`) entirely from training — a deliberately harder
+  generalization bar than a single held-out family.
 
 ---
 

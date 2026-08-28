@@ -1,33 +1,33 @@
 {
   "bakeoff": {
     "keyword_baseline": {
-      "precision": 0.7021,
-      "recall": 0.1075,
-      "f1": 0.1864,
-      "roc_auc": 0.5423,
-      "pr_auc": 0.3982,
-      "recall@1%fpr": 0.1075
+      "precision": 0.6731,
+      "recall": 0.0954,
+      "f1": 0.1671,
+      "roc_auc": 0.534,
+      "pr_auc": 0.4211,
+      "recall@1%fpr": 0.0954
     },
     "word_logreg": {
-      "precision": 0.984,
+      "precision": 1.0,
       "recall": 1.0,
-      "f1": 0.9919,
+      "f1": 1.0,
       "roc_auc": 1.0,
       "pr_auc": 1.0,
       "recall@1%fpr": 1.0
     },
     "char_logreg": {
-      "precision": 0.9903,
+      "precision": 1.0,
       "recall": 1.0,
-      "f1": 0.9951,
+      "f1": 1.0,
       "roc_auc": 1.0,
       "pr_auc": 1.0,
       "recall@1%fpr": 1.0
     },
     "union_logreg": {
-      "precision": 0.9871,
+      "precision": 1.0,
       "recall": 1.0,
-      "f1": 0.9935,
+      "f1": 1.0,
       "roc_auc": 1.0,
       "pr_auc": 1.0,
       "recall@1%fpr": 1.0
@@ -43,69 +43,69 @@
         "pr_auc": 1.0,
         "recall@1%fpr": 1.0
       },
-      "adversarial_holdout_pr_auc": 0.9999
+      "adversarial_holdout_pr_auc": 1.0
     },
     "cascade_end_to_end": {
       "standard_test": {
         "precision": 1.0,
-        "recall": 0.9837,
-        "f1": 0.9918
+        "recall": 0.9946,
+        "f1": 0.9973
       },
       "adversarial_holdout": {
         "precision": 1.0,
-        "recall": 0.9198,
-        "f1": 0.9582
+        "recall": 0.7652,
+        "f1": 0.867
       }
     },
-    "cost_optimal_threshold": 0.56,
+    "cost_optimal_threshold": 0.31,
     "note": "adversarial_holdout = attack families/obfuscations NEVER seen in training"
   },
   "ablation": {
-    "with_augmentation_adv_recall": 0.9198,
-    "without_augmentation_adv_recall": 0.7624,
+    "with_augmentation_adv_recall": 0.7652,
+    "without_augmentation_adv_recall": 0.4129,
     "interpretation": "augmentation should raise recall on unseen obfuscated attacks"
   },
   "dataset": {
-    "n_train": 3552,
-    "n_test": 889,
-    "n_adversarial": 686
+    "n_train": 3853,
+    "n_test": 964,
+    "n_adversarial": 775
   },
   "per_family_adversarial_recall": {
     "data_exfiltration": {
-      "n": 38,
-      "recall": 1.0
+      "n": 42,
+      "recall": 0.667
     },
     "encoding_smuggling": {
-      "n": 49,
-      "recall": 1.0
+      "n": 48,
+      "recall": 0.667
     },
     "indirect_injection": {
-      "n": 254,
-      "recall": 0.827
+      "n": 315,
+      "recall": 0.806
     },
     "instruction_override": {
-      "n": 55,
-      "recall": 1.0
+      "n": 61,
+      "recall": 0.721
     },
     "prompt_leak": {
-      "n": 40,
-      "recall": 1.0
+      "n": 36,
+      "recall": 0.5
     },
     "refusal_suppression": {
-      "n": 53,
-      "recall": 1.0
+      "n": 41,
+      "recall": 0.585
     },
     "roleplay_jailbreak": {
-      "n": 54,
-      "recall": 1.0
+      "n": 48,
+      "recall": 0.792
     },
     "stealth_injection": {
-      "n": 101,
-      "recall": 0.891
+      "n": 146,
+      "recall": 0.89
     },
     "tool_abuse": {
-      "n": 42,
-      "recall": 1.0
+      "n": 38,
+      "recall": 0.658
     }
   }
 }

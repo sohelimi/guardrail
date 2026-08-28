@@ -21,8 +21,11 @@ This module is deterministic given `SEED`, so the demo is reproducible.
 from __future__ import annotations
 
 import base64
+import codecs
 import hashlib
+import html
 import random
+import urllib.parse
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -403,12 +406,50 @@ def _upper(text: str) -> str:
     return text.upper()
 
 
+# --- newer encodings, deliberately WITHOUT an English "decode this" wrapper —
+# the base64 wrapper is exactly the giveaway Appendix Z exposed, so none of
+# these repeat that flaw: the disguise has to stand on its own. ---
+def _url_encode(text: str) -> str:
+    return urllib.parse.quote(text, safe="")
+
+
+def _hex_encode(text: str) -> str:
+    return "".join(f"\\x{b:02x}" for b in text.encode())
+
+
+def _html_entities(text: str) -> str:
+    return "".join(f"&#{ord(c)};" for c in text)
+
+
+def _rot13(text: str) -> str:
+    return codecs.encode(text, "rot_13")
+
+
+_FULLWIDTH = str.maketrans({chr(c): chr(c + 0xFEE0) for c in range(0x21, 0x7F)})
+
+
+def _fullwidth(text: str) -> str:
+    """Unicode fullwidth forms — visually near-identical, defeats \\b word-boundary regex."""
+    return text.translate(_FULLWIDTH)
+
+
+def _zero_width(text: str) -> str:
+    """Zero-width space inserted between every letter — invisible when rendered."""
+    return "​".join(text)
+
+
 OBFUSCATIONS = {
     "none": lambda t: t,
     "leetspeak": _leetspeak,
     "spaced": _spaced,
     "base64": _b64_wrap,
     "uppercase": _upper,
+    "url_encode": _url_encode,
+    "hex_encode": _hex_encode,
+    "html_entities": _html_entities,
+    "rot13": _rot13,
+    "fullwidth": _fullwidth,
+    "zero_width": _zero_width,
 }
 
 
@@ -425,7 +466,10 @@ class GenConfig:
     # families / obfuscations reserved for the ADVERSARIAL holdout only
     # (never shown in training -> measures generalisation to novel attacks)
     holdout_families: tuple[str, ...] = ("indirect_injection", "stealth_injection")
-    holdout_obfuscations: tuple[str, ...] = ("base64",)
+    # base64 (original) + zero_width (new, invisible-character attack) — held out
+    # together so the adversarial holdout tests generalisation to both a familiar
+    # and a genuinely novel-shaped disguise, not just one.
+    holdout_obfuscations: tuple[str, ...] = ("base64", "zero_width")
     augment: bool = True  # toggled off for the ablation study
     train_label_noise: float = 0.03  # simulated annotator disagreement (train only)
 

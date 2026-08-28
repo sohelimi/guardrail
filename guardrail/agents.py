@@ -16,10 +16,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import re
+import unicodedata
+
 from .a2a import AgentMessage, MessageBus, Performative
 from .config import UNCERTAIN_HIGH, UNCERTAIN_LOW
 from .llm_judge import _deobfuscate, judge
 from .models import top_tokens
+
+_URL_ENC_RE = re.compile(r"(?:%[0-9A-Fa-f]{2})")
+_HEX_ENC_RE = re.compile(r"(?:\\x[0-9A-Fa-f]{2}){3,}")
+_HTML_ENT_RE = re.compile(r"(?:&#\d+;){3,}")
+_FULLWIDTH_RE = re.compile(r"[！-～]{3,}")
+_ZERO_WIDTH_RE = re.compile("[​‌‍﻿]")
+_COMMON_WORDS = {"the", "you", "and", "your", "please", "ignore", "instructions",
+                 "system", "prompt", "reveal", "all", "this", "with", "what"}
+
+
+def _looks_rot13(text: str) -> bool:
+    """ROT13 has no structural signature — the only tell is that decoding it
+    makes the text look MORE like English than it already did."""
+    import codecs
+    rot = codecs.decode(text, "rot_13")
+    before = sum(1 for w in re.findall(r"[a-z]+", text.lower()) if w in _COMMON_WORDS)
+    after = sum(1 for w in re.findall(r"[a-z]+", rot.lower()) if w in _COMMON_WORDS)
+    return after >= 2 and after > before
 
 
 class Agent:
@@ -38,7 +59,6 @@ class ForensicsAgent(Agent):
     name = "Forensics"
 
     def handle(self, msg, bus):
-        import re
         text = msg.content["text"]
         transforms = []
         low = text.lower()
@@ -53,6 +73,23 @@ class ForensicsAgent(Agent):
         # so ordinary tokens like "Q3" or "SOC 2" don't trip it.
         if len(re.findall(r"[a-z][0-9][a-z]", low)) >= 1:
             transforms.append("leetspeak")
+        if _URL_ENC_RE.search(text):
+            transforms.append("url_encode")
+        if _HEX_ENC_RE.search(text):
+            transforms.append("hex_encode")
+        if _HTML_ENT_RE.search(text):
+            transforms.append("html_entities")
+        if _FULLWIDTH_RE.search(text):
+            transforms.append("fullwidth")
+        if _ZERO_WIDTH_RE.search(text):
+            transforms.append("zero_width")
+        if _looks_rot13(text):
+            transforms.append("rot13")
+        # Unicode homoglyphs (Cyrillic/Greek look-alikes, math-bold, etc.) that
+        # NFKC/unidecode would collapse away — a cheap giveaway is that the text
+        # normalizes to something meaningfully different from itself.
+        if unicodedata.normalize("NFKC", text) != text and not transforms:
+            transforms.append("unicode_homoglyph")
         # only de-obfuscate when a transform was actually detected; otherwise the
         # normalized view is just the original text (clean, readable trace).
         normalized = _deobfuscate(text) if transforms else text

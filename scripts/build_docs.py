@@ -158,7 +158,9 @@ SECTIONS = [
         "Real labelled injection attacks are scarce, sensitive, and evolve daily, so we manufacture a "
         "labelled corpus from two grammars: <b>benign</b> enterprise prompts across eight personas, "
         "and <b>attack</b> prompts from seven injection/jailbreak families seeded from public "
-        "taxonomies, mutated by obfuscation transforms (leetspeak, spacing, base64, uppercase).",
+        "taxonomies, mutated by 10 obfuscation transforms (leetspeak, spacing, base64, uppercase, "
+        "URL/percent-encoding, hex escapes, HTML entities, ROT13, Unicode fullwidth forms, and "
+        "zero-width character insertion).",
         "The credibility of the whole project rests on two deliberately hard sets: <b>hard negatives</b> "
         "— benign prompts that legitimately use sensitive vocabulary (&ldquo;summarise our "
         "<i>password</i> rotation policy&rdquo;) — and <b>look-alikes</b> — innocent uses of attack "
@@ -208,9 +210,12 @@ SECTIONS = [
 
     ("judge", "10 · Tier-2 Judge", p(
         "The Adjudicator's brain. In production this would call a guard LLM; for an offline demo it "
-        "falls back to a deterministic heuristic that de-obfuscates the prompt (decodes base64, "
-        "reverses leetspeak and spacing) and matches high-signal attack structure. Same interface "
-        "either way — set <code>GUARDRAIL_LLM=1</code> to enable the real LLM path."), [G / "llm_judge.py"]),
+        "falls back to a deterministic heuristic that de-obfuscates the prompt across 10 disguise "
+        "families (base64, spacing, leetspeak, uppercase, URL/percent-encoding, hex escapes, HTML "
+        "entities, ROT13, Unicode fullwidth forms, zero-width insertion) plus a general mojibake/"
+        "homoglyph safety net (<code>ftfy</code> + <code>unidecode</code>), then matches high-signal "
+        "attack structure. Same interface either way — set <code>GUARDRAIL_LLM=1</code> (with an "
+        "<code>ANTHROPIC_API_KEY</code>) to enable the real LLM path."), [G / "llm_judge.py"]),
 
     ("cascade", "11 · Cascade (evaluation core)", p(
         "The two-tier decision logic expressed as a single object. The multi-agent Orchestrator is this "
@@ -244,16 +249,17 @@ SECTIONS = [
         "behind the escalation band. (Full fine-tuning of DistilBERT was attempted but is impractical on "
         "CPU here, which only reinforces the point; it is recorded as such.)",
         "<b>Is the union really better than word-only?</b> On the benchmark it isn&rsquo;t, quite — "
-        "word-only <i>ties</i> it on adversarial recall. But only because the single held-out "
-        "obfuscation (base64) carries an English wrapper (&ldquo;Decode this base64&hellip;&rdquo;) that "
-        "word features catch for free. So a deeper, fair test (<code>deep_compare.py</code>) calibrates "
+        "word-only <i>ties</i> it on adversarial recall. But only because the two held-out "
+        "obfuscations (base64, zero-width) still leave enough intact word tokens (or an English "
+        "wrapper, for base64: &ldquo;Decode this base64&hellip;&rdquo;) that word features catch for free. "
+        "So a deeper, fair test (<code>deep_compare.py</code>) calibrates "
         "every candidate and adds a <b>char-stress holdout</b>: obfuscations that <i>destroy word "
         "tokens</i> — space-removal and inner-char swaps, never seen in training, no wrapper.",
         "<b>Two honest findings.</b> (1) <b>Calibration is not the differentiator</b> — a fairly "
         "calibrated word-only model reaches the same ECE, so that argument is dropped. (2) "
         "<b>Robustness is</b> — when obfuscation destroys word tokens, word-only&rsquo;s "
-        "<b>false-positive rate explodes to 43%</b> (it blocks nearly half of benign de-spaced text) "
-        "while the union holds <b>0%</b> and still recalls 0.93. That gap is the precision-first thesis, "
+        "<b>false-positive rate explodes to 46%</b> (it blocks nearly half of benign de-spaced text) "
+        "while the union holds <b>&lt;1%</b> and still recalls 0.97. That gap is the precision-first thesis, "
         "measured — and it is why the calibrated union is deployed."),
      [S / "run_benchmark.py", S / "deep_compare.py"]),
 
@@ -345,10 +351,14 @@ def benchmark_tables() -> str:
                    f"inner-char swaps, not in training):</p>")
         out.append("<table class=tbl><tr><th>Model</th><th>std F1</th><th>ECE&darr;</th>"
                    f"<th>char-stress recall</th><th>char-stress FPR</th></tr>{rows}</table>")
+        wc = m.get("word (calibrated)", {})
+        uc = m.get("union (calibrated) ★", {})
         out.append("<p class=note><b>Two findings.</b> Calibration is <i>not</i> the differentiator "
                    "(word-only reaches the same ECE). The real edge is robustness: when obfuscation "
-                   "destroys word tokens, word-only&rsquo;s false-positive rate hits <b>43%</b> while the "
-                   "union holds <b>0%</b> and still recalls 0.93. Reproduce with "
+                   f"destroys word tokens, word-only&rsquo;s false-positive rate hits "
+                   f"<b>{wc.get('charstress_fpr', 0):.0%}</b> while the "
+                   f"union holds <b>{uc.get('charstress_fpr', 0):.0%}</b> and still recalls "
+                   f"{uc.get('charstress_recall', 0):.2f}. Reproduce with "
                    "<code>python3 scripts/deep_compare.py</code>.</p>")
     return "".join(out) or "<p class=note>Run <code>scripts/run_benchmark.py</code> and <code>scripts/deep_compare.py</code> to populate.</p>"
 

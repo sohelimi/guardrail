@@ -15,11 +15,31 @@ DESIGN NOTE (important for the live demo & Q&A):
 from __future__ import annotations
 
 import base64
+import codecs
+import html
 import os
 import re
+import unicodedata
+import urllib.parse
 from dataclasses import dataclass
 
+import ftfy
+from unidecode import unidecode
+
 _LEET_BACK = str.maketrans({"4": "a", "3": "e", "1": "i", "0": "o", "5": "s"})
+# zero-width space / non-joiner / joiner / BOM — invisible characters attackers
+# insert between letters to defeat substring/keyword matching
+_ZERO_WIDTH_RE = re.compile("[​‌‍﻿]")
+_URL_ENC_RE = re.compile(r"(?:%[0-9A-Fa-f]{2})")
+_HEX_ENC_RE = re.compile(r"(?:\\x[0-9A-Fa-f]{2}){3,}")
+_HTML_ENT_RE = re.compile(r"(?:&#\d+;){3,}")
+_FULLWIDTH_RE = re.compile(r"[！-～]{3,}")
+# a handful of very common English words — used only to sanity-check that a
+# ROT13 decode actually produced more readable text than the input (ROT13 has
+# no other signature: it's just 26 letters shifted, so we can't detect it by
+# pattern alone, only by "does decoding make it look more like English?")
+_COMMON_WORDS = {"the", "you", "and", "your", "please", "ignore", "instructions",
+                 "system", "prompt", "reveal", "all", "this", "with", "what"}
 
 _STRONG_PATTERNS = [
     r"ignore .{0,20}(previous|prior|above).{0,20}instruction",
@@ -52,22 +72,61 @@ def _deobfuscate(text: str) -> str:
 
     Only reverses a transform when its signature is actually present, so ordinary
     text passes through unchanged (rather than being tripled or corrupted).
+    Covers 10 disguise families: base64, spacing, leetspeak, URL/percent-encoding,
+    hex escapes, HTML entities, ROT13, Unicode fullwidth forms, and invisible
+    zero-width-character insertion — plus a general mojibake/homoglyph safety
+    net (ftfy + unidecode) for encodings not explicitly enumerated here.
     """
     out = text
+    # zero-width characters: strip first (they're invisible but corrupt every
+    # other regex below if left in place)
+    if _ZERO_WIDTH_RE.search(out):
+        out = _ZERO_WIDTH_RE.sub("", out)
     # base64: decode any blob in place
-    for token in re.findall(r"[A-Za-z0-9+/]{16,}={0,2}", text):
+    for token in re.findall(r"[A-Za-z0-9+/]{16,}={0,2}", out):
         try:
             dec = base64.b64decode(token).decode(errors="ignore")
             if dec.isprintable() and len(dec) >= 3:
                 out = out.replace(token, dec)
         except Exception:
             pass
+    # URL / percent-encoding: %69%67%6e%6f%72%65 -> ignore
+    if _URL_ENC_RE.search(out):
+        try:
+            out = urllib.parse.unquote(out)
+        except Exception:
+            pass
+    # hex escapes: \x69\x67\x6e\x6f\x72\x65 -> ignore
+    if _HEX_ENC_RE.search(out):
+        out = re.sub(r"\\x([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), out)
+    # HTML entities: &#105;&#103;&#110;... -> ignore
+    if _HTML_ENT_RE.search(out):
+        out = html.unescape(out)
+    # Unicode fullwidth forms (ｉｇｎｏｒｅ) -> ascii, via canonical compatibility
+    # normalization; NFKC also quietly fixes several other Unicode look-alikes
+    if _FULLWIDTH_RE.search(out) or out != unicodedata.normalize("NFKC", out):
+        out = unicodedata.normalize("NFKC", out)
     # de-space only when there is clear single-character spacing ("i g n o r e")
     if re.search(r"\b\w(?: \w){3,}\b", out):
         out = re.sub(r"(?<=\b\w) (?=\w\b)", "", out)
     # reverse leetspeak only when a digit sits inside a word ("l3ak")
     if re.search(r"[A-Za-z][0-9][A-Za-z]", out):
         out = out.translate(_LEET_BACK)
+    # ROT13 has no signature of its own (it's just shifted letters) — only try
+    # it, and only keep the result, if decoding makes the text look MORE like
+    # English than it already did (more common-word hits after decoding).
+    rot = codecs.decode(out, "rot_13")
+    before = sum(1 for w in re.findall(r"[a-z]+", out.lower()) if w in _COMMON_WORDS)
+    after = sum(1 for w in re.findall(r"[a-z]+", rot.lower()) if w in _COMMON_WORDS)
+    if after >= 2 and after > before:
+        out = rot
+    # general safety net: fix any remaining mojibake / broken Unicode, then
+    # collapse look-alike characters (Cyrillic/Greek homoglyphs, math-bold,
+    # etc.) down to plain ASCII — catches disguises not explicitly listed above
+    out = ftfy.fix_text(out)
+    ascii_view = unidecode(out)
+    if ascii_view != out and len(ascii_view) >= 3:
+        out = ascii_view
     return out.lower()
 
 
