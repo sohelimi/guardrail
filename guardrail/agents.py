@@ -108,18 +108,85 @@ def _looks_b64(text: str) -> bool:
 # ---------------------------------------------------------------------------
 class PrivacyAgent(Agent):
     """Data-loss-prevention (PII/PHI) check — a concern distinct from injection
-    intent. Runs on the de-obfuscated view, right after Forensics and before
-    Triage, so neither the ML classifier nor the audit log ever sees raw
-    regulated data unnecessarily.
+    intent, and the reason this agent exists as its own pipeline stage rather
+    than being folded into Forensics or Triage.
 
-        low sensitivity  (email, phone)            -> redact, request continues
-        high sensitivity (SSN, card, MRN, etc.)     -> caller (Orchestrator)
-                                                        bypasses injection scoring
-                                                        entirely and routes to Policy
+    WHY IT'S SEPARATE FROM INJECTION DEFENSE
+        A prompt can be entirely benign — zero injection intent — and still be
+        a compliance incident. An employee pasting a patient's SSN and
+        diagnosis into a prompt to ask for help drafting a referral letter is
+        not an attack; it's a data-loss event a real enterprise gateway has to
+        catch regardless. Folding that into the injection classifier would
+        conflate two independent questions ("is this trying to manipulate the
+        model?" vs. "is regulated data about to leave the boundary?") behind a
+        single score, which is neither auditable nor correct — a request can
+        be a "1" on either axis independently of the other.
 
-    Detection is NER-primary (Presidio + spaCy) with a regex/keyword fallback
-    if the NER engine isn't available — see guardrail/pii.py. `source` on the
-    result records which path actually ran, for audit transparency.
+    WHERE IT SITS IN THE PIPELINE
+        Runs immediately after Forensics and before Triage, on the
+        de-obfuscated ("normalized") view of the input — so an attacker can't
+        hide a leaked SSN behind leetspeak or base64 any more than they could
+        hide an injection payload that way. This ordering also means neither
+        the ML classifier nor the audit log ever needs to see raw regulated
+        data unnecessarily: by the time Triage runs, low-sensitivity PII has
+        already been masked, and high-sensitivity PII/PHI has already exited
+        the pipeline entirely (see below) without ever reaching the
+        injection-scoring stage.
+
+    DETECTION STRATEGY (see guardrail/pii.py for the full implementation)
+        NER-primary, regex-fallback — the exact same cascade shape the tier-2
+        Adjudicator already uses (`_llm_judge() or _heuristic_judge()`):
+          * Primary: a real named-entity-recognition pass (Microsoft Presidio,
+            backed by spaCy's small English model — no torch dependency,
+            consistent with keeping heavyweight models off the hot path).
+            This catches unstructured PII no fixed pattern can, e.g. a bare
+            name ("Priya Sharma") or a street address, by recognizing the
+            *shape* of the entity from surrounding context. It also gives
+            SSN/credit-card detection real validation instead of a bare
+            pattern match — a canonical-placeholder blocklist for SSNs
+            (rejects the textbook fake "123-45-6789"), a genuine Luhn
+            checksum for cards. Two custom recognizers are registered
+            alongside spaCy's NER for entity types Presidio doesn't ship out
+            of the box: medical record numbers and diagnosis-disclosure
+            phrasing.
+          * Fallback: if the NER engine can't load for any reason (package
+            not installed, model missing, initialization failure), detection
+            falls straight back to the original regex + keyword-context
+            patterns — same interface, no crash, and still fully sufficient
+            for every *structured* format (SSN, card, MRN, diagnosis
+            phrasing, email, phone). Only the free-text/bare-entity cases
+            (a name with no other PII marker nearby) are missed in fallback
+            mode — an honest, bounded degradation, not a silent one.
+        `result.source` records which path actually ran ("ner" or "regex"),
+        threaded all the way through to the Verdict and the demo UI as
+        `pii_source`, so the audit trail never has to guess.
+
+    SENSITIVITY TIERS AND WHAT HAPPENS NEXT (decided by the Orchestrator,
+    not this agent — PrivacyAgent only reports findings, it doesn't rule)
+        none — nothing found. The (unmodified) view continues to Triage as
+               normal; this agent is invisible in the outcome.
+        low  — general PII: email, phone, or a bare person/location entity
+               (including spaCy's occasional NRP mistag for some names — see
+               the honest-limitations note in pii.py). Redacted in place
+               (e.g. "[REDACTED-EMAIL]"); the *scrubbed* text continues on to
+               Triage/Adjudicator, so injection scoring still runs, just
+               never on the raw PII.
+        high — regulated data: SSN, a Luhn-valid credit card, a medical
+               record number, diagnosis-disclosure phrasing, or a
+               passport/driver's-license number. The Orchestrator bypasses
+               injection scoring *entirely* for these — Triage and the
+               Adjudicator are never consulted — and routes straight to
+               Policy for a block/review decision. This is deliberate: a
+               regulated-data leak is a violation on its own terms,
+               independent of whether the prompt also happens to be an
+               attack, so there's no reason to pay for (or wait on) an
+               injection verdict that wouldn't change the outcome.
+
+    MESSAGE INTERFACE (A2A)
+        REQUEST  {"text": <de-obfuscated prompt>}
+        INFORM   {"sensitivity": "none"|"low"|"high", "pii_types": [...],
+                  "redacted": <text with low-sensitivity spans masked>,
+                  "pii_source": "ner"|"regex"}
     """
     name = "Privacy"
 
