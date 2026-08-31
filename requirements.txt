@@ -11,6 +11,18 @@ joblib>=1.3
 ftfy>=6.3
 unidecode>=1.4
 
+# PrivacyAgent's PII/PHI detection — NER-primary (real spaCy entity recognition,
+# not just regex), with an automatic fallback to regex/keyword-context detection
+# if either package or the model isn't installed (see guardrail/pii.py). The
+# small English model has no torch dependency, unlike the DistilBERT candidates
+# this project already keeps off the hot path.
+presidio-analyzer>=2.2
+spacy>=3.8
+# after installing spacy, also fetch its small English model:
+#   python3 -m pip install --user "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+# (avoids `python3 -m spacy download`, which shells out to pip without the
+# --break-system-packages flag this environment's PEP 668 policy requires)
+
 # The live demo (serve.py) uses ONLY the Python standard library — no web framework.
 
 # Optional — enable a real LLM tier-2 Adjudicator instead of the heuristic fallback:

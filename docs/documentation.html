@@ -2649,7 +2649,7 @@ _ids = itertools.count(<span class="c-num">1</span>)
 
         <span class="c-self">self</span>.trace = []
 
-</pre></div></div></section><section id="agents"><h2>8 · The Agents</h2><p>Six agents, each owning exactly one responsibility and communicating only via A2A messages. <b>Forensics</b> de-obfuscates the input and reports the transforms it found; <b>Privacy</b> is a data-loss-prevention (PII/PHI) check run right after it and before injection scoring &mdash; a concern distinct from attack intent (see below); <b>Triage</b> is the fast ML tier-1 detector; <b>Adjudicator</b> is the tier-2 deep judge consulted only for the uncertain band; <b>Policy</b> maps a verdict (or PII sensitivity) plus the user's role to a concrete action (allow / block / human-review); the <b>Orchestrator</b> runs the workflow and issues the ruling. Because each agent is isolated, the heuristic Adjudicator can be swapped for a real LLM guard model without touching anyone else.</p><div class="code"><div class="code-head"><span class="fn">agents.py</span><span class="ln-count">336 lines</span></div><div class="code-body"><pre class="gutter">1
+</pre></div></div></section><section id="agents"><h2>8 · The Agents</h2><p>Six agents, each owning exactly one responsibility and communicating only via A2A messages. <b>Forensics</b> de-obfuscates the input and reports the transforms it found; <b>Privacy</b> is a data-loss-prevention (PII/PHI) check run right after it and before injection scoring &mdash; a concern distinct from attack intent (see below); <b>Triage</b> is the fast ML tier-1 detector; <b>Adjudicator</b> is the tier-2 deep judge consulted only for the uncertain band; <b>Policy</b> maps a verdict (or PII sensitivity) plus the user's role to a concrete action (allow / block / human-review); the <b>Orchestrator</b> runs the workflow and issues the ruling. Because each agent is isolated, the heuristic Adjudicator can be swapped for a real LLM guard model without touching anyone else.</p><div class="code"><div class="code-head"><span class="fn">agents.py</span><span class="ln-count">344 lines</span></div><div class="code-body"><pre class="gutter">1
 2
 3
 4
@@ -2984,7 +2984,15 @@ _ids = itertools.count(<span class="c-num">1</span>)
 333
 334
 335
-336</pre><pre class="src"><span class="c-str">&quot;&quot;&quot;The specialized agents that collaborate to adjudicate a prompt.
+336
+337
+338
+339
+340
+341
+342
+343
+344</pre><pre class="src"><span class="c-str">&quot;&quot;&quot;The specialized agents that collaborate to adjudicate a prompt.
 
 Each agent owns ONE responsibility and speaks only via A2A messages:
 
@@ -3196,6 +3204,10 @@ _COMMON_WORDS = {<span class="c-str">&quot;the&quot;</span>, <span class="c-str"
         high sensitivity (SSN, card, MRN, etc.)     -&gt; caller (Orchestrator)
                                                         bypasses injection scoring
                                                         entirely and routes to Policy
+
+    Detection is NER-primary (Presidio + spaCy) with a regex/keyword fallback
+    if the NER engine isn&#x27;t available — see guardrail/pii.py. `source` on the
+    result records which path actually ran, for audit transparency.
     &quot;&quot;&quot;</span>
 
     name = <span class="c-str">&quot;Privacy&quot;</span>
@@ -3212,7 +3224,7 @@ _COMMON_WORDS = {<span class="c-str">&quot;the&quot;</span>, <span class="c-str"
 
                           sensitivity=result.sensitivity, pii_types=result.types,
 
-                          redacted=result.redacted)]
+                          redacted=result.redacted, pii_source=result.source)]
 
 
 
@@ -3392,6 +3404,8 @@ _COMMON_WORDS = {<span class="c-str">&quot;the&quot;</span>, <span class="c-str"
 
     pii_types: list = field(default_factory=list)
 
+    pii_source: str = <span class="c-str">&quot;regex&quot;</span>         <span class="c-com"># &quot;ner&quot; | &quot;regex&quot; — which Privacy detection path ran</span>
+
 
 
 
@@ -3460,6 +3474,8 @@ _COMMON_WORDS = {<span class="c-str">&quot;the&quot;</span>, <span class="c-str"
 
         pii_types = priv.content[<span class="c-str">&quot;pii_types&quot;</span>]
 
+        pii_source = priv.content[<span class="c-str">&quot;pii_source&quot;</span>]
+
 
 
         <span class="c-kw">if</span> pii_sensitivity == <span class="c-str">&quot;high&quot;</span>:
@@ -3495,6 +3511,8 @@ _COMMON_WORDS = {<span class="c-str">&quot;the&quot;</span>, <span class="c-str"
                 pii_sensitivity=pii_sensitivity,
 
                 pii_types=pii_types,
+
+                pii_source=pii_source,
 
             )
 
@@ -3602,6 +3620,8 @@ _COMMON_WORDS = {<span class="c-str">&quot;the&quot;</span>, <span class="c-str"
 
             pii_types=pii_types,
 
+            pii_source=pii_source,
+
         )
 
         <span class="c-com"># persist the decision + full A2A trace for auditability</span>
@@ -3612,7 +3632,7 @@ _COMMON_WORDS = {<span class="c-str">&quot;the&quot;</span>, <span class="c-str"
 
         <span class="c-kw">return</span> verdict
 
-</pre></div></div></section><section id="privacy"><h2>8b · PII/PHI Data-Loss-Prevention</h2><p>A prompt can be entirely benign &mdash; no injection intent at all &mdash; and still be a compliance incident: an employee pasting a patient's SSN and diagnosis into a prompt is not an attack, but it is a data-loss event a real enterprise gateway must catch. The <b>Privacy</b> agent (<code>guardrail/pii.py</code>) is regex + keyword-context detection, not a trained NER model &mdash; a deliberate scope choice, the same honest trade-off made elsewhere in this project: structured, high-precision patterns catch the clearest violations cheaply and explainably.</p><p><b>Two sensitivity tiers.</b> <i>Low</i> (email, phone) is redacted in place and the request continues &mdash; Triage and the audit log only ever see the scrubbed view. <i>High</i> (SSN, Luhn-validated credit card, medical record number, diagnosis-disclosure phrasing, passport/driver's-license numbers) bypasses injection scoring entirely: the Orchestrator routes straight to Policy for a block/review decision, because regulated-data exposure is a violation on its own terms, independent of whether the prompt also happens to be an attack.</p><div class="code"><div class="code-head"><span class="fn">pii.py</span><span class="ln-count">97 lines</span></div><div class="code-body"><pre class="gutter">1
+</pre></div></div></section><section id="privacy"><h2>8b · PII/PHI Data-Loss-Prevention</h2><p>A prompt can be entirely benign &mdash; no injection intent at all &mdash; and still be a compliance incident: an employee pasting a patient's SSN and diagnosis into a prompt is not an attack, but it is a data-loss event a real enterprise gateway must catch. The <b>Privacy</b> agent (<code>guardrail/pii.py</code>) is <b>NER-primary</b>: a real named-entity-recognition pass (Microsoft Presidio, backed by spaCy's small English model, no torch dependency) that recognizes the <i>shape</i> of an entity from context &mdash; a bare name (&ldquo;Priya Sharma&rdquo;), a street address &mdash; that no fixed regex can catch. Two custom recognizers are registered alongside spaCy's NER for entity types Presidio doesn't ship (medical record numbers, diagnosis-disclosure phrasing). If the NER engine isn't available for any reason, detection falls straight back to the original regex + keyword-context patterns &mdash; the exact same <code>_llm_judge() or _heuristic_judge()</code> cascade shape the tier-2 Adjudicator already uses, just applied to PII detection.</p><p><b>Two sensitivity tiers.</b> <i>Low</i> (email, phone, a bare person/location entity) is redacted in place and the request continues &mdash; Triage and the audit log only ever see the scrubbed view. <i>High</i> (SSN with a real placeholder-blocklist check, Luhn-validated credit card, medical record number, diagnosis-disclosure phrasing, passport/driver's-license numbers) bypasses injection scoring entirely: the Orchestrator routes straight to Policy for a block/review decision, because regulated-data exposure is a violation on its own terms, independent of whether the prompt also happens to be an attack.</p><p><b>Honest limitations.</b> This adds real but modest latency (~4&nbsp;ms/request measured over the regex-only baseline &mdash; ~13&nbsp;ms vs ~9&nbsp;ms). And the small spaCy model has a documented name-classification bias: verified directly, it tags &ldquo;Priya Sharma&rdquo; as <code>NRP</code> (nationality/religious/political group) rather than <code>PERSON</code>, while &ldquo;John Smith&rdquo; and &ldquo;Wei Zhang&rdquo; classify correctly. Both are still redacted here (<code>NRP</code> is bucketed as low-sensitivity PII too), which mitigates the practical impact without fixing the underlying model bias &mdash; a real deployment would want a name-detection benchmark across name origins before trusting this model's <code>PERSON</code> recall unevenly.</p><div class="code"><div class="code-head"><span class="fn">pii.py</span><span class="ln-count">226 lines</span></div><div class="code-body"><pre class="gutter">1
 2
 3
 4
@@ -3708,19 +3728,160 @@ _COMMON_WORDS = {<span class="c-str">&quot;the&quot;</span>, <span class="c-str"
 94
 95
 96
-97</pre><pre class="src"><span class="c-str">&quot;&quot;&quot;PII/PHI detection for the PrivacyAgent — a data-loss-prevention (DLP) concern
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+125
+126
+127
+128
+129
+130
+131
+132
+133
+134
+135
+136
+137
+138
+139
+140
+141
+142
+143
+144
+145
+146
+147
+148
+149
+150
+151
+152
+153
+154
+155
+156
+157
+158
+159
+160
+161
+162
+163
+164
+165
+166
+167
+168
+169
+170
+171
+172
+173
+174
+175
+176
+177
+178
+179
+180
+181
+182
+183
+184
+185
+186
+187
+188
+189
+190
+191
+192
+193
+194
+195
+196
+197
+198
+199
+200
+201
+202
+203
+204
+205
+206
+207
+208
+209
+210
+211
+212
+213
+214
+215
+216
+217
+218
+219
+220
+221
+222
+223
+224
+225
+226</pre><pre class="src"><span class="c-str">&quot;&quot;&quot;PII/PHI detection for the PrivacyAgent — a data-loss-prevention (DLP) concern
 distinct from prompt-injection defense.
 
-DESIGN NOTE: this is regex + keyword-context detection, not a trained NER model.
-That&#x27;s a deliberate scope choice, not an oversight — the same honest trade-off
-this project makes elsewhere (see llm_judge.py&#x27;s heuristic judge): structured,
-high-precision patterns (SSN format, Luhn-valid card numbers) catch the clearest
-violations cheaply and explainably; a real production DLP layer would add a
-trained PII-NER model (e.g. Presidio, spaCy) on top for free-text names/addresses,
-which this intentionally does not attempt.
+Two-tier detection, mirroring the same &quot;real engine, honest fallback&quot; pattern
+used by the tier-2 Adjudicator (llm_judge.py&#x27;s `_llm_judge() or _heuristic_judge()`):
 
-Two sensitivity tiers:
-    LOW  — general PII (email, phone). Redacted in place; the request continues.
+    * PRIMARY: a real NER (Named Entity Recognition) pass via Microsoft Presidio,
+      backed by spaCy&#x27;s small English model. This catches unstructured PII that
+      no regex can — a bare name (&quot;Priya Sharma&quot;), a street address — by
+      recognizing the *shape* of the entity from context, not a fixed pattern.
+      Presidio&#x27;s own built-in recognizers additionally give SSN/credit-card
+      detection real validation (a canonical-placeholder blocklist for SSNs,
+      a genuine Luhn checksum for cards) rather than the bare regex this
+      project shipped with initially. Two custom recognizers are registered
+      alongside spaCy&#x27;s NER for entity types Presidio doesn&#x27;t ship: medical
+      record numbers and diagnosis-disclosure phrasing.
+    * FALLBACK: if `presidio-analyzer` or the spaCy model isn&#x27;t installed (or
+      fails to load for any reason), we fall straight back to the original
+      regex + keyword-context detection — no NER, no crash, same interface.
+      This is what ran before the NER upgrade and is still fully sufficient
+      for structured formats (SSN, card, MRN, diagnosis phrasing, email, phone).
+
+Two sensitivity tiers either way:
+    LOW  — general PII (email, phone, a bare person name/location). Redacted
+           in place; the request continues.
     HIGH — regulated data (SSN, credit card, medical record number, diagnosis
            disclosure, passport/driver&#x27;s-license numbers). Never redacted-and-
            forwarded: the PrivacyAgent&#x27;s caller routes these straight to a
@@ -3731,9 +3892,29 @@ Two sensitivity tiers:
 
 
 
+<span class="c-kw">import</span> os
+
 <span class="c-kw">import</span> re
 
 <span class="c-kw">from</span> dataclasses <span class="c-kw">import</span> dataclass, field
+
+
+
+<span class="c-com"># Must be set before spaCy/thinc/blis are imported anywhere in the process —</span>
+
+<span class="c-com"># their native OpenMP runtime aborts the whole interpreter (SIGABRT, not a</span>
+
+<span class="c-com"># catchable exception) if a second OpenMP copy is already linked in, which</span>
+
+<span class="c-com"># happens routinely alongside numpy/scikit-learn on macOS. Setting this here,</span>
+
+<span class="c-com"># at module import time and before the lazy NER engine is ever built, is what</span>
+
+<span class="c-com"># makes the try/except around engine creation actually able to catch failures</span>
+
+<span class="c-com"># instead of the process just dying.</span>
+
+os.environ.setdefault(<span class="c-str">&quot;KMP_DUPLICATE_LIB_OK&quot;</span>, <span class="c-str">&quot;TRUE&quot;</span>)
 
 
 
@@ -3749,17 +3930,51 @@ _CARD_RE = re.compile(<span class="c-str">r&quot;\b(?:\d[ -]?){13,19}\b&quot;</s
 
 _MRN_RE = re.compile(<span class="c-str">r&quot;\bMRN[:\s#]*\d{5,10}\b&quot;</span>, re.I)
 
-_DIAGNOSIS_RE = re.compile(
+_DIAGNOSIS_PATTERN = (
 
     <span class="c-str">r&quot;\b(?:diagnos(?:is|ed)|icd-?10)\b.{0,60}\b(?:patient|dob|name)\b&quot;</span>
 
-    <span class="c-str">r&quot;|\b(?:patient|dob|name)\b.{0,60}\b(?:diagnos(?:is|ed)|icd-?10)\b&quot;</span>, re.I,
+    <span class="c-str">r&quot;|\b(?:patient|dob|name)\b.{0,60}\b(?:diagnos(?:is|ed)|icd-?10)\b&quot;</span>
 
 )
+
+_DIAGNOSIS_RE = re.compile(_DIAGNOSIS_PATTERN, re.I)
 
 _PASSPORT_RE = re.compile(<span class="c-str">r&quot;\bpassport\s*(?:no\.?|number|#)?\s*[:#]?\s*[A-Z0-9]{6,9}\b&quot;</span>, re.I)
 
 _DL_RE = re.compile(<span class="c-str">r&quot;\bdriver&#x27;?s?\s*licen[cs]e\s*(?:no\.?|number|#)?\s*[:#]?\s*[A-Z0-9]{5,12}\b&quot;</span>, re.I)
+
+
+
+<span class="c-com"># Entity types Presidio&#x27;s NER pass can return, bucketed by sensitivity.</span>
+
+_NER_HIGH = {
+
+    <span class="c-str">&quot;US_SSN&quot;</span>, <span class="c-str">&quot;CREDIT_CARD&quot;</span>, <span class="c-str">&quot;US_BANK_NUMBER&quot;</span>, <span class="c-str">&quot;US_ITIN&quot;</span>, <span class="c-str">&quot;IBAN_CODE&quot;</span>,
+
+    <span class="c-str">&quot;MEDICAL_LICENSE&quot;</span>, <span class="c-str">&quot;MRN&quot;</span>, <span class="c-str">&quot;DIAGNOSIS_DISCLOSURE&quot;</span>,
+
+    <span class="c-str">&quot;PASSPORT_DISCLOSURE&quot;</span>, <span class="c-str">&quot;DRIVERS_LICENSE_DISCLOSURE&quot;</span>,
+
+}
+
+_NER_LOW = {<span class="c-str">&quot;EMAIL_ADDRESS&quot;</span>, <span class="c-str">&quot;PHONE_NUMBER&quot;</span>, <span class="c-str">&quot;PERSON&quot;</span>, <span class="c-str">&quot;LOCATION&quot;</span>, <span class="c-str">&quot;NRP&quot;</span>}
+
+<span class="c-com"># NRP (&quot;nationality/religious/political group&quot;) is included here because spaCy&#x27;s</span>
+
+<span class="c-com"># small model has a documented bias: it misclassifies some non-Western names as</span>
+
+<span class="c-com"># NRP instead of PERSON (verified directly — &quot;Priya Sharma&quot; -&gt; NRP 0.85, &quot;John</span>
+
+<span class="c-com"># Smith&quot; -&gt; PERSON 0.85, same sentence shape). Treating NRP as low-sensitivity</span>
+
+<span class="c-com"># PII too is a practical mitigation, not a fix for the underlying model bias —</span>
+
+<span class="c-com"># a real production deployment would want a name-detection benchmark across</span>
+
+<span class="c-com"># name origins before trusting this model&#x27;s PERSON recall unevenly.</span>
+
+_NER_SCORE_THRESHOLD = <span class="c-num">0.4</span>  <span class="c-com"># excludes Presidio&#x27;s own &quot;very weak&quot; (&lt;=0.3) built-ins</span>
 
 
 
@@ -3768,7 +3983,9 @@ _DL_RE = re.compile(<span class="c-str">r&quot;\bdriver&#x27;?s?\s*licen[cs]e\s*
 <span class="c-kw">def</span> _luhn_valid(digits: str) -&gt; bool:
 
     <span class="c-str">&quot;&quot;&quot;Standard Luhn checksum — filters out ordinary 13-19 digit numbers
-    (phone extensions, tracking IDs) that aren&#x27;t actually card numbers.&quot;&quot;&quot;</span>
+    (phone extensions, tracking IDs) that aren&#x27;t actually card numbers.
+    Used only in the regex-fallback path; the NER path delegates to
+    Presidio&#x27;s own (identical) Luhn validation on CREDIT_CARD.&quot;&quot;&quot;</span>
 
     d = [int(c) <span class="c-kw">for</span> c <span class="c-kw">in</span> digits]
 
@@ -3802,11 +4019,15 @@ _DL_RE = re.compile(<span class="c-str">r&quot;\bdriver&#x27;?s?\s*licen[cs]e\s*
 
     redacted: str = <span class="c-str">&quot;&quot;</span>                 <span class="c-com"># low-sensitivity hits masked; unchanged if high/none</span>
 
+    source: str = <span class="c-str">&quot;regex&quot;</span>              <span class="c-com"># &quot;ner&quot; | &quot;regex&quot; — which path produced this result</span>
 
 
 
 
-<span class="c-kw">def</span> scan_pii(text: str) -&gt; PIIResult:
+
+<span class="c-kw">def</span> _regex_scan(text: str) -&gt; PIIResult:
+
+    <span class="c-str">&quot;&quot;&quot;Fallback path: no NER engine available. Structured formats only.&quot;&quot;&quot;</span>
 
     high_types: list[str] = []
 
@@ -3850,13 +4071,9 @@ _DL_RE = re.compile(<span class="c-str">r&quot;\bdriver&#x27;?s?\s*licen[cs]e\s*
 
     <span class="c-kw">if</span> high_types:
 
-        <span class="c-com"># regulated data present -&gt; caller bypasses redaction/continuation entirely,</span>
+        <span class="c-kw">return</span> PIIResult(sensitivity=<span class="c-str">&quot;high&quot;</span>, types=sorted(set(high_types)),
 
-        <span class="c-com"># so no need to mask here; the raw text still travels with the finding for</span>
-
-        <span class="c-com"># audit purposes (the Orchestrator, not this function, decides what happens).</span>
-
-        <span class="c-kw">return</span> PIIResult(sensitivity=<span class="c-str">&quot;high&quot;</span>, types=sorted(set(high_types)), redacted=text)
+                         redacted=text, source=<span class="c-str">&quot;regex&quot;</span>)
 
 
 
@@ -3876,11 +4093,181 @@ _DL_RE = re.compile(<span class="c-str">r&quot;\bdriver&#x27;?s?\s*licen[cs]e\s*
 
     <span class="c-kw">if</span> low_types:
 
-        <span class="c-kw">return</span> PIIResult(sensitivity=<span class="c-str">&quot;low&quot;</span>, types=sorted(set(low_types)), redacted=out)
+        <span class="c-kw">return</span> PIIResult(sensitivity=<span class="c-str">&quot;low&quot;</span>, types=sorted(set(low_types)),
+
+                         redacted=out, source=<span class="c-str">&quot;regex&quot;</span>)
 
 
 
-    <span class="c-kw">return</span> PIIResult(sensitivity=<span class="c-str">&quot;none&quot;</span>, types=[], redacted=text)
+    <span class="c-kw">return</span> PIIResult(sensitivity=<span class="c-str">&quot;none&quot;</span>, types=[], redacted=text, source=<span class="c-str">&quot;regex&quot;</span>)
+
+
+
+
+
+_ner_engine = <span class="c-str">&quot;unset&quot;</span>  <span class="c-com"># lazy singleton: &quot;unset&quot; -&gt; not yet attempted; None -&gt; unavailable; else engine</span>
+
+
+
+
+
+<span class="c-kw">def</span> _build_ner_engine():
+
+    <span class="c-str">&quot;&quot;&quot;Build a Presidio AnalyzerEngine pinned to the small (non-transformer,
+    no torch dependency) spaCy model, with two custom recognizers registered
+    for entity types Presidio doesn&#x27;t ship out of the box. Returns None on
+    any failure so the caller falls back to regex — never raises.&quot;&quot;&quot;</span>
+
+    <span class="c-kw">try</span>:
+
+        <span class="c-kw">from</span> presidio_analyzer <span class="c-kw">import</span> AnalyzerEngine, Pattern, PatternRecognizer
+
+        <span class="c-kw">from</span> presidio_analyzer.nlp_engine <span class="c-kw">import</span> NlpEngineProvider
+
+
+
+        config = {
+
+            <span class="c-str">&quot;nlp_engine_name&quot;</span>: <span class="c-str">&quot;spacy&quot;</span>,
+
+            <span class="c-str">&quot;models&quot;</span>: [{<span class="c-str">&quot;lang_code&quot;</span>: <span class="c-str">&quot;en&quot;</span>, <span class="c-str">&quot;model_name&quot;</span>: <span class="c-str">&quot;en_core_web_sm&quot;</span>}],
+
+        }
+
+        nlp_engine = NlpEngineProvider(nlp_configuration=config).create_engine()
+
+        analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=[<span class="c-str">&quot;en&quot;</span>])
+
+
+
+        analyzer.registry.add_recognizer(PatternRecognizer(
+
+            supported_entity=<span class="c-str">&quot;MRN&quot;</span>, name=<span class="c-str">&quot;MrnRecognizer&quot;</span>,
+
+            patterns=[Pattern(<span class="c-str">&quot;MRN&quot;</span>, _MRN_RE.pattern, <span class="c-num">0.85</span>)],
+
+        ))
+
+        analyzer.registry.add_recognizer(PatternRecognizer(
+
+            supported_entity=<span class="c-str">&quot;DIAGNOSIS_DISCLOSURE&quot;</span>, name=<span class="c-str">&quot;DiagnosisDisclosureRecognizer&quot;</span>,
+
+            patterns=[Pattern(<span class="c-str">&quot;DIAGNOSIS_DISCLOSURE&quot;</span>, _DIAGNOSIS_PATTERN, <span class="c-num">0.85</span>)],
+
+        ))
+
+        analyzer.registry.add_recognizer(PatternRecognizer(
+
+            supported_entity=<span class="c-str">&quot;PASSPORT_DISCLOSURE&quot;</span>, name=<span class="c-str">&quot;PassportDisclosureRecognizer&quot;</span>,
+
+            patterns=[Pattern(<span class="c-str">&quot;PASSPORT_DISCLOSURE&quot;</span>, _PASSPORT_RE.pattern, <span class="c-num">0.85</span>)],
+
+        ))
+
+        analyzer.registry.add_recognizer(PatternRecognizer(
+
+            supported_entity=<span class="c-str">&quot;DRIVERS_LICENSE_DISCLOSURE&quot;</span>, name=<span class="c-str">&quot;DriversLicenseDisclosureRecognizer&quot;</span>,
+
+            patterns=[Pattern(<span class="c-str">&quot;DRIVERS_LICENSE_DISCLOSURE&quot;</span>, _DL_RE.pattern, <span class="c-num">0.85</span>)],
+
+        ))
+
+        <span class="c-kw">return</span> analyzer
+
+    <span class="c-kw">except</span> Exception:
+
+        <span class="c-kw">return</span> <span class="c-kw">None</span>
+
+
+
+
+
+<span class="c-kw">def</span> _get_ner_engine():
+
+    <span class="c-kw">global</span> _ner_engine
+
+    <span class="c-kw">if</span> _ner_engine == <span class="c-str">&quot;unset&quot;</span>:
+
+        _ner_engine = _build_ner_engine()
+
+    <span class="c-kw">return</span> _ner_engine
+
+
+
+
+
+<span class="c-kw">def</span> _ner_scan(text: str) -&gt; PIIResult | <span class="c-kw">None</span>:
+
+    <span class="c-str">&quot;&quot;&quot;Primary path. Returns None (not a PIIResult) if the engine is
+    unavailable, so the caller knows to fall back rather than trust an
+    &#x27;all clear&#x27; that never actually ran.&quot;&quot;&quot;</span>
+
+    engine = _get_ner_engine()
+
+    <span class="c-kw">if</span> engine <span class="c-kw">is</span> <span class="c-kw">None</span>:
+
+        <span class="c-kw">return</span> <span class="c-kw">None</span>
+
+    <span class="c-kw">try</span>:
+
+        results = engine.analyze(text=text, language=<span class="c-str">&quot;en&quot;</span>, score_threshold=_NER_SCORE_THRESHOLD)
+
+    <span class="c-kw">except</span> Exception:
+
+        <span class="c-kw">return</span> <span class="c-kw">None</span>
+
+
+
+    high_types: list[str] = []
+
+    low_hits: list[tuple[int, int, str]] = []  <span class="c-com"># (start, end, entity_type) for redaction</span>
+
+    <span class="c-kw">for</span> r <span class="c-kw">in</span> results:
+
+        <span class="c-kw">if</span> r.entity_type <span class="c-kw">in</span> _NER_HIGH:
+
+            high_types.append(r.entity_type.lower())
+
+        <span class="c-kw">elif</span> r.entity_type <span class="c-kw">in</span> _NER_LOW:
+
+            low_hits.append((r.start, r.end, r.entity_type))
+
+
+
+    <span class="c-kw">if</span> high_types:
+
+        <span class="c-kw">return</span> PIIResult(sensitivity=<span class="c-str">&quot;high&quot;</span>, types=sorted(set(high_types)),
+
+                         redacted=text, source=<span class="c-str">&quot;ner&quot;</span>)
+
+
+
+    <span class="c-kw">if</span> low_hits:
+
+        out = text
+
+        <span class="c-kw">for</span> start, end, etype <span class="c-kw">in</span> sorted(low_hits, key=<span class="c-kw">lambda</span> h: h[<span class="c-num">0</span>], reverse=<span class="c-kw">True</span>):
+
+            out = out[:start] + <span class="c-str">f&quot;</span>[REDACTED-{etype}]&quot; + out[end:]
+
+        low_types = sorted({etype.lower() <span class="c-kw">for</span> _, _, etype <span class="c-kw">in</span> low_hits})
+
+        <span class="c-kw">return</span> PIIResult(sensitivity=<span class="c-str">&quot;low&quot;</span>, types=low_types, redacted=out, source=<span class="c-str">&quot;ner&quot;</span>)
+
+
+
+    <span class="c-kw">return</span> PIIResult(sensitivity=<span class="c-str">&quot;none&quot;</span>, types=[], redacted=text, source=<span class="c-str">&quot;ner&quot;</span>)
+
+
+
+
+
+<span class="c-kw">def</span> scan_pii(text: str) -&gt; PIIResult:
+
+    <span class="c-str">&quot;&quot;&quot;Public entry point used by PrivacyAgent. NER path if the engine loaded
+    successfully; otherwise the original regex/keyword detection.&quot;&quot;&quot;</span>
+
+    <span class="c-kw">return</span> _ner_scan(text) <span class="c-kw">or</span> _regex_scan(text)
 
 </pre></div></div></section><section id="orchestrator"><h2>9 · Orchestrator Factory</h2><p>A small factory that loads the trained tier-1 model, registers the agents on a message bus, and returns a ready orchestrator. This is the single entry point the demo and tests use.</p><div class="code"><div class="code-head"><span class="fn">orchestrator.py</span><span class="ln-count">41 lines</span></div><div class="code-body"><pre class="gutter">1
 2
@@ -6851,7 +7238,7 @@ OUT = ARTIFACT_DIR / <span class="c-str">&quot;deep_compare.json&quot;</span>
 
     main()
 
-</pre></div></div></section><section id="serve"><h2>15 · Live Demo Server</h2><p>A dependency-free web app built on <code>http.server</code>. It serves a single page that calls the orchestrator and renders the A2A trace live. No Flask, no Streamlit, no network — safe to run in an interview with the Wi-Fi off. Port is configurable to avoid collisions.</p><div class="code"><div class="code-head"><span class="fn">serve.py</span><span class="ln-count">244 lines</span></div><div class="code-body"><pre class="gutter">1
+</pre></div></div></section><section id="serve"><h2>15 · Live Demo Server</h2><p>A dependency-free web app built on <code>http.server</code>. It serves a single page that calls the orchestrator and renders the A2A trace live. No Flask, no Streamlit, no network — safe to run in an interview with the Wi-Fi off. Port is configurable to avoid collisions.</p><div class="code"><div class="code-head"><span class="fn">serve.py</span><span class="ln-count">245 lines</span></div><div class="code-body"><pre class="gutter">1
 2
 3
 4
@@ -7094,7 +7481,8 @@ OUT = ARTIFACT_DIR / <span class="c-str">&quot;deep_compare.json&quot;</span>
 241
 242
 243
-244</pre><pre class="src"><span class="c-str">&quot;&quot;&quot;Live demo server for Guardrail — dependency-free (Python stdlib only).
+244
+245</pre><pre class="src"><span class="c-str">&quot;&quot;&quot;Live demo server for Guardrail — dependency-free (Python stdlib only).
 
     python3 serve.py         # then open http://localhost:8000
 
@@ -7182,6 +7570,8 @@ EXAMPLES = [
         <span class="c-str">&quot;latency_ms&quot;</span>: v.latency_ms, <span class="c-str">&quot;judge_source&quot;</span>: v.judge_source,
 
         <span class="c-str">&quot;pii_sensitivity&quot;</span>: v.pii_sensitivity, <span class="c-str">&quot;pii_types&quot;</span>: v.pii_types,
+
+        <span class="c-str">&quot;pii_source&quot;</span>: v.pii_source,
 
         <span class="c-str">&quot;trace&quot;</span>: [{<span class="c-str">&quot;sender&quot;</span>: m.sender, <span class="c-str">&quot;receiver&quot;</span>: m.receiver,
 
@@ -7420,7 +7810,7 @@ async function go(){
       &lt;div style=flex:1&gt;
         &lt;div class=meta&gt;risk score &lt;b&gt;${v.risk.toFixed(3)}&lt;/b&gt; · obfuscation: &lt;b&gt;${esc(tf)}&lt;/b&gt;
           ${v.judge_source?&#x27;· judge: &lt;b&gt;&#x27;+esc(v.judge_source)+&#x27;&lt;/b&gt;&#x27;:&#x27;&#x27;}
-          ${v.pii_sensitivity&amp;&amp;v.pii_sensitivity!==&#x27;none&#x27;?&#x27;· PII/PHI: &lt;b&gt;&#x27;+esc(v.pii_sensitivity)+&#x27; (&#x27;+esc((v.pii_types||[]).join(&#x27;, &#x27;))+&#x27;)&lt;/b&gt;&#x27;:&#x27;&#x27;}&lt;/div&gt;
+          ${v.pii_sensitivity&amp;&amp;v.pii_sensitivity!==&#x27;none&#x27;?&#x27;· PII/PHI: &lt;b&gt;&#x27;+esc(v.pii_sensitivity)+&#x27; (&#x27;+esc((v.pii_types||[]).join(&#x27;, &#x27;))+&#x27;)&lt;/b&gt; [&lt;i&gt;&#x27;+esc(v.pii_source)+&#x27;&lt;/i&gt;]&#x27;:&#x27;&#x27;}&lt;/div&gt;
         &lt;div class=gauge&gt;&lt;i style=&quot;width:${pct}%;background:${gcol}&quot;&gt;&lt;/i&gt;&lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;

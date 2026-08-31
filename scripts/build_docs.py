@@ -209,16 +209,31 @@ SECTIONS = [
         "A prompt can be entirely benign &mdash; no injection intent at all &mdash; and still be a "
         "compliance incident: an employee pasting a patient's SSN and diagnosis into a prompt is not "
         "an attack, but it is a data-loss event a real enterprise gateway must catch. The "
-        "<b>Privacy</b> agent (<code>guardrail/pii.py</code>) is regex + keyword-context detection, "
-        "not a trained NER model &mdash; a deliberate scope choice, the same honest trade-off made "
-        "elsewhere in this project: structured, high-precision patterns catch the clearest violations "
-        "cheaply and explainably.",
-        "<b>Two sensitivity tiers.</b> <i>Low</i> (email, phone) is redacted in place and the request "
-        "continues &mdash; Triage and the audit log only ever see the scrubbed view. <i>High</i> "
-        "(SSN, Luhn-validated credit card, medical record number, diagnosis-disclosure phrasing, "
-        "passport/driver's-license numbers) bypasses injection scoring entirely: the Orchestrator "
-        "routes straight to Policy for a block/review decision, because regulated-data exposure is a "
-        "violation on its own terms, independent of whether the prompt also happens to be an attack."),
+        "<b>Privacy</b> agent (<code>guardrail/pii.py</code>) is <b>NER-primary</b>: a real named-"
+        "entity-recognition pass (Microsoft Presidio, backed by spaCy's small English model, no "
+        "torch dependency) that recognizes the <i>shape</i> of an entity from context &mdash; a bare "
+        "name (&ldquo;Priya Sharma&rdquo;), a street address &mdash; that no fixed regex can catch. "
+        "Two custom recognizers are registered alongside spaCy's NER for entity types Presidio "
+        "doesn't ship (medical record numbers, diagnosis-disclosure phrasing). If the NER engine "
+        "isn't available for any reason, detection falls straight back to the original regex + "
+        "keyword-context patterns &mdash; the exact same <code>_llm_judge() or _heuristic_judge()</code> "
+        "cascade shape the tier-2 Adjudicator already uses, just applied to PII detection.",
+        "<b>Two sensitivity tiers.</b> <i>Low</i> (email, phone, a bare person/location entity) is "
+        "redacted in place and the request continues &mdash; Triage and the audit log only ever see "
+        "the scrubbed view. <i>High</i> (SSN with a real placeholder-blocklist check, Luhn-validated "
+        "credit card, medical record number, diagnosis-disclosure phrasing, passport/driver's-license "
+        "numbers) bypasses injection scoring entirely: the Orchestrator routes straight to Policy for "
+        "a block/review decision, because regulated-data exposure is a violation on its own terms, "
+        "independent of whether the prompt also happens to be an attack.",
+        "<b>Honest limitations.</b> This adds real but modest latency (~4&nbsp;ms/request measured "
+        "over the regex-only baseline &mdash; ~13&nbsp;ms vs ~9&nbsp;ms). And the small spaCy model "
+        "has a documented name-classification bias: verified directly, it tags &ldquo;Priya "
+        "Sharma&rdquo; as <code>NRP</code> (nationality/religious/political group) rather than "
+        "<code>PERSON</code>, while &ldquo;John Smith&rdquo; and &ldquo;Wei Zhang&rdquo; classify "
+        "correctly. Both are still redacted here (<code>NRP</code> is bucketed as low-sensitivity "
+        "PII too), which mitigates the practical impact without fixing the underlying model bias "
+        "&mdash; a real deployment would want a name-detection benchmark across name origins before "
+        "trusting this model's <code>PERSON</code> recall unevenly."),
      [G / "pii.py"]),
 
     ("orchestrator", "9 · Orchestrator Factory", p(

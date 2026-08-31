@@ -116,6 +116,10 @@ class PrivacyAgent(Agent):
         high sensitivity (SSN, card, MRN, etc.)     -> caller (Orchestrator)
                                                         bypasses injection scoring
                                                         entirely and routes to Policy
+
+    Detection is NER-primary (Presidio + spaCy) with a regex/keyword fallback
+    if the NER engine isn't available — see guardrail/pii.py. `source` on the
+    result records which path actually ran, for audit transparency.
     """
     name = "Privacy"
 
@@ -124,7 +128,7 @@ class PrivacyAgent(Agent):
         result = scan_pii(text)
         return [self._msg(msg.sender, Performative.INFORM,
                           sensitivity=result.sensitivity, pii_types=result.types,
-                          redacted=result.redacted)]
+                          redacted=result.redacted, pii_source=result.source)]
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +218,7 @@ class Verdict:
     judge_source: str | None = None
     pii_sensitivity: str = "none"     # "none" | "low" | "high"
     pii_types: list = field(default_factory=list)
+    pii_source: str = "regex"         # "ner" | "regex" — which Privacy detection path ran
 
 
 class OrchestratorAgent(Agent):
@@ -257,6 +262,7 @@ class OrchestratorAgent(Agent):
         priv = self.bus.send(self._msg("Privacy", Performative.REQUEST, text=view))[0]
         pii_sensitivity = priv.content["sensitivity"]
         pii_types = priv.content["pii_types"]
+        pii_source = priv.content["pii_source"]
 
         if pii_sensitivity == "high":
             # regulated data present -> bypass injection scoring entirely; this is a
@@ -275,6 +281,7 @@ class OrchestratorAgent(Agent):
                 latency_ms=round((time.perf_counter() - t0) * 1000, 2),
                 pii_sensitivity=pii_sensitivity,
                 pii_types=pii_types,
+                pii_source=pii_source,
             )
             if self.audit is not None:
                 self.audit.record(verdict, text, role)
@@ -328,6 +335,7 @@ class OrchestratorAgent(Agent):
             judge_source=jsrc,
             pii_sensitivity=pii_sensitivity,
             pii_types=pii_types,
+            pii_source=pii_source,
         )
         # persist the decision + full A2A trace for auditability
         if self.audit is not None:

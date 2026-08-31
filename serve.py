@@ -46,6 +46,7 @@ def verdict_to_dict(v) -> dict:
         "transforms": v.transforms, "top_tokens": v.top_tokens,
         "latency_ms": v.latency_ms, "judge_source": v.judge_source,
         "pii_sensitivity": v.pii_sensitivity, "pii_types": v.pii_types,
+        "pii_source": v.pii_source,
         "trace": [{"sender": m.sender, "receiver": m.receiver,
                    "performative": m.performative.value,
                    "content": {k: _jsonable(val) for k, val in m.content.items()}}
@@ -218,7 +219,7 @@ async function go(){
       <div style=flex:1>
         <div class=meta>risk score <b>${v.risk.toFixed(3)}</b> · obfuscation: <b>${esc(tf)}</b>
           ${v.judge_source?'· judge: <b>'+esc(v.judge_source)+'</b>':''}
-          ${v.pii_sensitivity&&v.pii_sensitivity!=='none'?'· PII/PHI: <b>'+esc(v.pii_sensitivity)+' ('+esc((v.pii_types||[]).join(', '))+')</b>':''}</div>
+          ${v.pii_sensitivity&&v.pii_sensitivity!=='none'?'· PII/PHI: <b>'+esc(v.pii_sensitivity)+' ('+esc((v.pii_types||[]).join(', '))+')</b> [<i>'+esc(v.pii_source)+'</i>]':''}</div>
         <div class=gauge><i style="width:${pct}%;background:${gcol}"></i></div>
       </div>
     </div>

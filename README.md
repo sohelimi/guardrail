@@ -54,11 +54,16 @@ prompt ─▶ Orchestrator ─REQUEST─▶ Forensics   (de-obfuscate; report tr
   Tier-1 (calibrated TF-IDF word+char Logistic Regression, ~1 ms) answers the easy
   majority; only the uncertain middle band pays for the slower Adjudicator.
 - **PII/PHI is a separate concern from injection intent** (`guardrail/pii.py`): low-sensitivity
-  PII (email, phone) is redacted in place and the request continues; regulated data (SSN,
-  Luhn-valid credit card, medical record number, diagnosis-disclosure phrasing, passport/
-  driver's-license numbers) bypasses injection scoring entirely and routes straight to a
-  block/review decision — a compliance violation regardless of whether the prompt is also
-  an attack.
+  PII (email, phone, a bare name/location) is redacted in place and the request continues;
+  regulated data (SSN, Luhn-valid credit card, medical record number, diagnosis-disclosure
+  phrasing, passport/driver's-license numbers) bypasses injection scoring entirely and routes
+  straight to a block/review decision — a compliance violation regardless of whether the
+  prompt is also an attack. Detection is **NER-primary** (Microsoft Presidio + spaCy, catches
+  unstructured PII no regex can, e.g. a bare "Priya Sharma") **with an automatic regex/keyword
+  fallback** if the NER engine isn't available — same `_llm_judge() or _heuristic_judge()`
+  pattern the Adjudicator uses. Adds ~4 ms/request over the regex-only baseline (~13 ms vs
+  ~9 ms measured); honest caveat: spaCy's small model has a documented name-classification
+  bias (mistags some non-Western names) — mitigated but not fixed here.
 - **A2A protocol** (`guardrail/a2a.py`): every step is a typed, addressed, **logged**
   message (FIPA-style `REQUEST/INFORM/ESCALATE/DECIDE`). For a security control,
   auditability is the point — and it drives the live demo trace.
@@ -122,7 +127,7 @@ guardrail/
   models.py       bake-off candidates, calibrated primary, token-level interpretability
   a2a.py          A2A message protocol + bus (typed, logged messages)
   agents.py       Forensics / Privacy / Triage / Adjudicator / Policy / Orchestrator
-  pii.py          PII/PHI detection (regex + Luhn + keyword-context; low vs high sensitivity)
+  pii.py          PII/PHI detection — NER (Presidio+spaCy) primary, regex/Luhn/keyword fallback
   orchestrator.py factory that wires the trained model into the agent system
   llm_judge.py    tier-2 judge (LLM-optional, heuristic fallback)
   evaluate.py     bake-off, adversarial holdout, per-family, ablation, cost-threshold
