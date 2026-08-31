@@ -3,9 +3,10 @@
 Each agent owns ONE responsibility and speaks only via A2A messages:
 
     ForensicsAgent   - normalises/de-obfuscates the input, reports transforms
+    PrivacyAgent     - PII/PHI (data-loss-prevention) check, distinct from injection intent
     TriageAgent      - fast ML tier-1 detector -> calibrated risk score
     AdjudicatorAgent - tier-2 deep judge, only for the uncertain band
-    PolicyAgent      - maps (verdict, user role) -> concrete action
+    PolicyAgent      - maps (verdict|pii_sensitivity, user role) -> concrete action
     OrchestratorAgent- coordinates the above and issues the final ruling
 
 Separation of concerns matters here beyond tidiness: each agent is independently
@@ -23,6 +24,7 @@ from .a2a import AgentMessage, MessageBus, Performative
 from .config import UNCERTAIN_HIGH, UNCERTAIN_LOW
 from .llm_judge import _deobfuscate, judge
 from .models import top_tokens
+from .pii import scan_pii
 
 _URL_ENC_RE = re.compile(r"(?:%[0-9A-Fa-f]{2})")
 _HEX_ENC_RE = re.compile(r"(?:\\x[0-9A-Fa-f]{2}){3,}")
@@ -104,6 +106,28 @@ def _looks_b64(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+class PrivacyAgent(Agent):
+    """Data-loss-prevention (PII/PHI) check — a concern distinct from injection
+    intent. Runs on the de-obfuscated view, right after Forensics and before
+    Triage, so neither the ML classifier nor the audit log ever sees raw
+    regulated data unnecessarily.
+
+        low sensitivity  (email, phone)            -> redact, request continues
+        high sensitivity (SSN, card, MRN, etc.)     -> caller (Orchestrator)
+                                                        bypasses injection scoring
+                                                        entirely and routes to Policy
+    """
+    name = "Privacy"
+
+    def handle(self, msg, bus):
+        text = msg.content["text"]
+        result = scan_pii(text)
+        return [self._msg(msg.sender, Performative.INFORM,
+                          sensitivity=result.sensitivity, pii_types=result.types,
+                          redacted=result.redacted)]
+
+
+# ---------------------------------------------------------------------------
 class TriageAgent(Agent):
     """Fast ML tier-1 detector. Emits a calibrated P(attack) and top tokens."""
     name = "Triage"
@@ -151,9 +175,21 @@ class PolicyAgent(Agent):
     REVIEW_ROLES = {"admin", "security_engineer"}
 
     def handle(self, msg, bus):
+        pii_sensitivity = msg.content.get("pii_sensitivity", "none")
+        pii_types = msg.content.get("pii_types", [])
+        role = msg.content.get("role", "employee")
+        if pii_sensitivity == "high":
+            kinds = ", ".join(pii_types) or "regulated data"
+            if role in self.REVIEW_ROLES:
+                action = "review"
+                reason = f"Regulated PII/PHI ({kinds}) detected -> human review for trusted role '{role}'."
+            else:
+                action = "block"
+                reason = f"Regulated PII/PHI ({kinds}) detected -> blocked per data-loss-prevention policy."
+            return [self._msg(msg.sender, Performative.DECIDE, action=action, reason=reason)]
+
         verdict = msg.content["verdict"]        # 1 = attack, 0 = benign
         confidence = msg.content.get("confidence", 1.0)
-        role = msg.content.get("role", "employee")
         if verdict == 0:
             action, reason = "allow", "No injection intent detected."
         elif confidence < 0.80 and role in self.REVIEW_ROLES:
@@ -169,13 +205,15 @@ class Verdict:
     label: int
     action: str                       # allow | block | review
     risk: float
-    decided_by: str                   # "Triage" or "Adjudicator"
+    decided_by: str                   # "Triage" | "Adjudicator" | "Privacy"
     reason: str
     transforms: list = field(default_factory=list)
     top_tokens: list = field(default_factory=list)
     trace: list = field(default_factory=list)   # list[AgentMessage]
     latency_ms: float = 0.0
     judge_source: str | None = None
+    pii_sensitivity: str = "none"     # "none" | "low" | "high"
+    pii_types: list = field(default_factory=list)
 
 
 class OrchestratorAgent(Agent):
@@ -184,7 +222,13 @@ class OrchestratorAgent(Agent):
     Flow:
         Orchestrator -> Forensics : REQUEST  (normalise)
         Forensics    -> Orchestrator: INFORM (transforms)
-        Orchestrator -> Triage    : REQUEST  (classify)
+        Orchestrator -> Privacy   : REQUEST  (PII/PHI scan)
+        Privacy      -> Orchestrator: INFORM (sensitivity, pii_types)
+        [if pii sensitivity == "high"]
+        Orchestrator -> Policy     : REQUEST (decide)      # bypasses injection scoring
+        Policy       -> Orchestrator: DECIDE (action)
+        [else]
+        Orchestrator -> Triage    : REQUEST  (classify; low-sensitivity view is redacted)
         Triage       -> Orchestrator: INFORM (risk)
         [if uncertain]
         Orchestrator -> Adjudicator: ESCALATE
@@ -207,14 +251,45 @@ class OrchestratorAgent(Agent):
         # 1. Forensics
         fx = self.bus.send(self._msg("Forensics", Performative.REQUEST, text=text))[0]
         transforms = fx.content["transforms"]
-
-        # 2. Triage (classify the de-obfuscated view so obfuscation can't hide intent)
         view = fx.content["normalized"] if transforms else text
+
+        # 2. Privacy — PII/PHI scan on the de-obfuscated view, before injection scoring
+        priv = self.bus.send(self._msg("Privacy", Performative.REQUEST, text=view))[0]
+        pii_sensitivity = priv.content["sensitivity"]
+        pii_types = priv.content["pii_types"]
+
+        if pii_sensitivity == "high":
+            # regulated data present -> bypass injection scoring entirely; this is a
+            # DLP violation regardless of whether the prompt is also an attack
+            pol = self.bus.send(self._msg("Policy", Performative.REQUEST,
+                                          pii_sensitivity=pii_sensitivity,
+                                          pii_types=pii_types, role=role))[0]
+            verdict = Verdict(
+                label=1,
+                action=pol.content["action"],
+                risk=1.0,
+                decided_by="Privacy",
+                reason=pol.content["reason"],
+                transforms=transforms,
+                trace=list(self.bus.trace),
+                latency_ms=round((time.perf_counter() - t0) * 1000, 2),
+                pii_sensitivity=pii_sensitivity,
+                pii_types=pii_types,
+            )
+            if self.audit is not None:
+                self.audit.record(verdict, text, role)
+            return verdict
+
+        # low-sensitivity PII is redacted in place; the (now-scrubbed) view continues
+        if pii_sensitivity == "low":
+            view = priv.content["redacted"]
+
+        # 3. Triage (classify the de-obfuscated, PII-scrubbed view)
         tri = self.bus.send(self._msg("Triage", Performative.REQUEST, text=view))[0]
         risk = tri.content["risk"]
         tokens = tri.content["top_tokens"]
 
-        # 3. Decide directly, or escalate the uncertain middle band
+        # 4. Decide directly, or escalate the uncertain middle band
         if risk < self.low:
             label, decided_by, jsrc, confidence = 0, "Triage", None, 1 - risk
             escalate_reason = f"Confidently benign (risk={risk:.2f} < {self.low})."
@@ -231,21 +306,28 @@ class OrchestratorAgent(Agent):
             escalate_reason = (f"Uncertain at tier-1 (risk={risk:.2f}); "
                                f"Adjudicator[{jsrc}] -> {'ATTACK' if label else 'BENIGN'}.")
 
-        # 4. Policy
+        # 5. Policy
         pol = self.bus.send(self._msg("Policy", Performative.REQUEST, verdict=label,
-                                      confidence=confidence, role=role))[0]
+                                      confidence=confidence, role=role,
+                                      pii_sensitivity=pii_sensitivity))[0]
+
+        reason = f"{escalate_reason} {pol.content['reason']}"
+        if pii_sensitivity == "low":
+            reason += f" (PII redacted before scoring: {', '.join(pii_types)}.)"
 
         verdict = Verdict(
             label=label,
             action=pol.content["action"],
             risk=risk,
             decided_by=decided_by,
-            reason=f"{escalate_reason} {pol.content['reason']}",
+            reason=reason,
             transforms=transforms,
             top_tokens=tokens,
             trace=list(self.bus.trace),
             latency_ms=round((time.perf_counter() - t0) * 1000, 2),
             judge_source=jsrc,
+            pii_sensitivity=pii_sensitivity,
+            pii_types=pii_types,
         )
         # persist the decision + full A2A trace for auditability
         if self.audit is not None:

@@ -195,13 +195,31 @@ SECTIONS = [
      [G / "a2a.py"]),
 
     ("agents", "8 · The Agents", p(
-        "Five agents, each owning exactly one responsibility and communicating only via A2A messages. "
-        "<b>Forensics</b> de-obfuscates the input and reports the transforms it found; <b>Triage</b> is "
+        "Six agents, each owning exactly one responsibility and communicating only via A2A messages. "
+        "<b>Forensics</b> de-obfuscates the input and reports the transforms it found; <b>Privacy</b> "
+        "is a data-loss-prevention (PII/PHI) check run right after it and before injection scoring "
+        "&mdash; a concern distinct from attack intent (see below); <b>Triage</b> is "
         "the fast ML tier-1 detector; <b>Adjudicator</b> is the tier-2 deep judge consulted only for "
-        "the uncertain band; <b>Policy</b> maps a verdict plus the user's role to a concrete action "
-        "(allow / block / human-review); the <b>Orchestrator</b> runs the workflow and issues the "
-        "ruling. Because each agent is isolated, the heuristic Adjudicator can be swapped for a real "
-        "LLM guard model without touching anyone else."), [G / "agents.py"]),
+        "the uncertain band; <b>Policy</b> maps a verdict (or PII sensitivity) plus the user's role to "
+        "a concrete action (allow / block / human-review); the <b>Orchestrator</b> runs the workflow "
+        "and issues the ruling. Because each agent is isolated, the heuristic Adjudicator can be "
+        "swapped for a real LLM guard model without touching anyone else."), [G / "agents.py"]),
+
+    ("privacy", "8b · PII/PHI Data-Loss-Prevention", p(
+        "A prompt can be entirely benign &mdash; no injection intent at all &mdash; and still be a "
+        "compliance incident: an employee pasting a patient's SSN and diagnosis into a prompt is not "
+        "an attack, but it is a data-loss event a real enterprise gateway must catch. The "
+        "<b>Privacy</b> agent (<code>guardrail/pii.py</code>) is regex + keyword-context detection, "
+        "not a trained NER model &mdash; a deliberate scope choice, the same honest trade-off made "
+        "elsewhere in this project: structured, high-precision patterns catch the clearest violations "
+        "cheaply and explainably.",
+        "<b>Two sensitivity tiers.</b> <i>Low</i> (email, phone) is redacted in place and the request "
+        "continues &mdash; Triage and the audit log only ever see the scrubbed view. <i>High</i> "
+        "(SSN, Luhn-validated credit card, medical record number, diagnosis-disclosure phrasing, "
+        "passport/driver's-license numbers) bypasses injection scoring entirely: the Orchestrator "
+        "routes straight to Policy for a block/review decision, because regulated-data exposure is a "
+        "violation on its own terms, independent of whether the prompt also happens to be an attack."),
+     [G / "pii.py"]),
 
     ("orchestrator", "9 · Orchestrator Factory", p(
         "A small factory that loads the trained tier-1 model, registers the agents on a message bus, "

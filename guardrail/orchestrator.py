@@ -12,7 +12,7 @@ import joblib
 
 from .a2a import MessageBus
 from .agents import (AdjudicatorAgent, ForensicsAgent, OrchestratorAgent,
-                     PolicyAgent, TriageAgent)
+                     PolicyAgent, PrivacyAgent, TriageAgent)
 from .config import MODEL_PATH
 
 
@@ -26,7 +26,8 @@ def build_orchestrator(tier1_model=None, model_path=MODEL_PATH, audit=False) -> 
         tier1_model = joblib.load(model_path)["tier1"]
 
     bus = MessageBus()
-    for agent in (ForensicsAgent(), TriageAgent(tier1_model), AdjudicatorAgent(), PolicyAgent()):
+    for agent in (ForensicsAgent(), PrivacyAgent(), TriageAgent(tier1_model),
+                 AdjudicatorAgent(), PolicyAgent()):
         bus.register(agent)
 
     sink = None

@@ -38,19 +38,27 @@ The credibility hinges on two deliberately hard sets:
 **Fidelity validation:** exact/near-dup removal, class-balance + length reports, and a
 hard train/test leakage check (`make_data.py`).
 
-## Architecture — 5 agents over an A2A protocol
+## Architecture — 6 agents over an A2A protocol
 
 ```
 prompt ─▶ Orchestrator ─REQUEST─▶ Forensics   (de-obfuscate; report transforms)
-                        ─REQUEST─▶ Triage      (fast ML tier-1 → calibrated risk)
+                        ─REQUEST─▶ Privacy     (PII/PHI DLP scan — distinct from injection intent)
+              pii=high → straight to Policy (bypasses injection scoring) │ else ↓
+                        ─REQUEST─▶ Triage      (fast ML tier-1 → calibrated risk, on redacted view)
               risk<0.30 → allow │ risk>0.80 → block │ else ↓
-                        ─ESCALATE▶ Adjudicator (tier-2 deep judge; LLM-optional)
+                        ─ESCALATE▶ Adjudicator (tier-2 deep judge; LLM-optional, Anthropic/OpenAI)
                         ─REQUEST─▶ Policy       (role-based action: allow/block/review)
 ```
 
 - **Cascade rationale:** at gateway QPS you can’t afford an LLM call per request.
   Tier-1 (calibrated TF-IDF word+char Logistic Regression, ~1 ms) answers the easy
   majority; only the uncertain middle band pays for the slower Adjudicator.
+- **PII/PHI is a separate concern from injection intent** (`guardrail/pii.py`): low-sensitivity
+  PII (email, phone) is redacted in place and the request continues; regulated data (SSN,
+  Luhn-valid credit card, medical record number, diagnosis-disclosure phrasing, passport/
+  driver's-license numbers) bypasses injection scoring entirely and routes straight to a
+  block/review decision — a compliance violation regardless of whether the prompt is also
+  an attack.
 - **A2A protocol** (`guardrail/a2a.py`): every step is a typed, addressed, **logged**
   message (FIPA-style `REQUEST/INFORM/ESCALATE/DECIDE`). For a security control,
   auditability is the point — and it drives the live demo trace.
@@ -113,7 +121,8 @@ guardrail/
   features.py     word + char TF-IDF vectorizers
   models.py       bake-off candidates, calibrated primary, token-level interpretability
   a2a.py          A2A message protocol + bus (typed, logged messages)
-  agents.py       Forensics / Triage / Adjudicator / Policy / Orchestrator
+  agents.py       Forensics / Privacy / Triage / Adjudicator / Policy / Orchestrator
+  pii.py          PII/PHI detection (regex + Luhn + keyword-context; low vs high sensitivity)
   orchestrator.py factory that wires the trained model into the agent system
   llm_judge.py    tier-2 judge (LLM-optional, heuristic fallback)
   evaluate.py     bake-off, adversarial holdout, per-family, ablation, cost-threshold
